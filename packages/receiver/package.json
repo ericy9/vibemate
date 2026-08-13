@@ -1,0 +1,21 @@
+{
+  "name": "@vibemate/receiver",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@vibemate/adapter-codex": "*",
+    "@vibemate/adapter-common": "*",
+    "@vibemate/adapter-copilot": "*",
+    "@vibemate/core": "*",
+    "@vibemate/protocol": "*"
+  }
+}

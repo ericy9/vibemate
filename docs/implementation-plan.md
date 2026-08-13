@@ -7,6 +7,14 @@
 
 ## 2. 第零阶段：调研与协议设计
 
+### 当前技术决策
+
+- 核心运行时使用 Node.js 22 和 TypeScript。
+- 仓库使用 npm workspaces，首批模块为 `@vibemate/protocol` 和
+  `@vibemate/core`。
+- Agent Hook 与接收服务保持独立进程边界；Electron 只作为后续消费者。
+- 本机验证基线为 Codex CLI 0.147.0 和 GitHub Copilot CLI 1.0.79。
+
 ### 目标
 
 - 确认参考代码和素材的许可证。
@@ -127,12 +135,15 @@
 packages/
   protocol/          共享事件和权限协议
   core/              会话存储、状态转换、权限 Broker
-  adapter-codex/     Codex Hook Adapter 和安装器
-  adapter-copilot/   Copilot Hook Adapter 和安装器
+  adapter-common/    Agent Adapter 公共清理和身份逻辑
+  adapter-codex/     Codex Hook Adapter
+  adapter-copilot/   Copilot Hook Adapter
+  receiver/          loopback HTTP 接收服务和运行时发现
+  hook-runner/       Agent Hook 短进程和原生回退
+  hook-installer/    增量安装、冲突检测和卸载
   observer/          开发用事件与权限观察器
   desktop/           后续的 Electron、桌宠、气泡和通知
 ```
 
 Adapter 可以依赖协议层，但协议层和核心层不能导入 Agent Adapter 或 Electron。
 个人提醒最终也应作为独立模块，由桌面展示层消费。
-

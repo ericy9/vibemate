@@ -1,0 +1,22 @@
+{
+  "name": "vibemate",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "tsc -b packages/protocol packages/core packages/adapter-common packages/adapter-codex packages/adapter-copilot packages/receiver packages/hook-runner packages/hook-installer",
+    "clean": "tsc -b packages/protocol packages/core packages/adapter-common packages/adapter-codex packages/adapter-copilot packages/receiver packages/hook-runner packages/hook-installer --clean",
+    "test": "npm run build && node --test packages/protocol/dist/*.test.js packages/core/dist/*.test.js packages/adapter-codex/dist/*.test.js packages/adapter-copilot/dist/*.test.js packages/receiver/dist/*.test.js packages/hook-runner/dist/*.test.js packages/hook-installer/dist/*.test.js",
+    "typecheck": "tsc -b packages/protocol packages/core packages/adapter-common packages/adapter-codex packages/adapter-copilot packages/receiver packages/hook-runner packages/hook-installer --pretty false",
+    "start:receiver": "npm run build && node packages/receiver/dist/cli.js",
+    "hooks:install": "npm run build && node packages/hook-installer/dist/cli.js install",
+    "hooks:uninstall": "npm run build && node packages/hook-installer/dist/cli.js uninstall"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "typescript": "^5.8.3"
+  }
+}
