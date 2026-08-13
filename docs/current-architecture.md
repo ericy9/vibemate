@@ -634,8 +634,7 @@ vibemate/
 │   ├── receiver/
 │   ├── hook-runner/
 │   └── hook-installer/
-├── docs/
-└── handoff/
+└── docs/
 ```
 
 包内通常采用：

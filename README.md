@@ -16,10 +16,6 @@ Codex/Copilot 事件映射、loopback HTTP 接收服务、Hook runner 和增量�
 ## 项目文档
 
 - [产品需求文档](docs/product-requirements.md)
-- [实施计划](docs/implementation-plan.md)
-- [Protocol v1](docs/protocol-v1.md)
-- [本机接收服务](docs/local-receiver.md)
-- [Agent Hook 集成](docs/hook-integration.md)
 - [当前架构](docs/current-architecture.md)
 
 ## 初始范围
