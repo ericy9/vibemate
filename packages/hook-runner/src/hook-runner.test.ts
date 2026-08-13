@@ -5,7 +5,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { nativeFallback, runHook } from "./index.js";
+import { nativeFallback, parseRuntimeConfig, runHook } from "./index.js";
 
 const TOKEN = "a".repeat(43);
 
@@ -228,6 +228,28 @@ test("runtime discovery is constrained to private loopback configuration", async
     }),
     runtimeFilePath,
   }), /runtime config is invalid/);
+});
+
+test("runtime discovery contract accepts the receiver-owned shape", () => {
+  const runtime = parseRuntimeConfig({
+    protocolVersion: 1,
+    host: "127.0.0.1",
+    port: 43123,
+    pid: 1234,
+    startedAt: "2026-08-13T12:00:00.000Z",
+    authToken: TOKEN,
+  });
+
+  assert.deepEqual(runtime, {
+    protocolVersion: 1,
+    host: "127.0.0.1",
+    port: 43123,
+    pid: 1234,
+    startedAt: "2026-08-13T12:00:00.000Z",
+    authToken: TOKEN,
+  });
+  assert.throws(() => parseRuntimeConfig({ ...runtime, protocolVersion: 2 }), /invalid/);
+  assert.throws(() => parseRuntimeConfig({ ...runtime, authToken: "short" }), /invalid/);
 });
 
 test("CLI exits successfully with native fallback when the receiver is absent", async () => {

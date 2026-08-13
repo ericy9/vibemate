@@ -1,25 +1,13 @@
-import { open } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { loadRuntimeConfig } from "./runtime-config.js";
 
-const PROTOCOL_VERSION = 1;
 const MAX_HOOK_BYTES = 256 * 1024;
-const MAX_RUNTIME_BYTES = 16 * 1024;
 const MAX_RESPONSE_BYTES = 16 * 1024;
 const DEFAULT_LIFECYCLE_TIMEOUT_MS = 1_000;
 const DEFAULT_PERMISSION_TIMEOUT_MS = 9 * 60 * 1_000;
-const TOKEN_PATTERN = /^[a-zA-Z0-9_-]{20,256}$/;
 
 export type HookAgent = "codex" | "copilot";
-
-interface RuntimeConfig {
-  protocolVersion: typeof PROTOCOL_VERSION;
-  host: "127.0.0.1";
-  port: number;
-  pid: number;
-  startedAt: string;
-  authToken: string;
-}
 
 export interface RunHookOptions {
   agent: HookAgent;
@@ -83,52 +71,6 @@ function endpointFor(
     throw new Error("Copilot hook event name is invalid");
   }
   return `/v1/hooks/copilot/${eventName}`;
-}
-
-function validateRuntimeConfig(value: unknown): RuntimeConfig {
-  if (!isRecord(value)) {
-    throw new Error("runtime config must be an object");
-  }
-  if (
-    value.protocolVersion !== PROTOCOL_VERSION
-    || value.host !== "127.0.0.1"
-    || typeof value.port !== "number"
-    || !Number.isInteger(value.port)
-    || value.port < 1
-    || value.port > 65_535
-    || typeof value.pid !== "number"
-    || !Number.isInteger(value.pid)
-    || value.pid < 1
-    || typeof value.startedAt !== "string"
-    || Number.isNaN(Date.parse(value.startedAt))
-    || typeof value.authToken !== "string"
-    || !TOKEN_PATTERN.test(value.authToken)
-  ) {
-    throw new Error("runtime config is invalid");
-  }
-  return value as unknown as RuntimeConfig;
-}
-
-async function loadRuntimeConfig(path: string): Promise<RuntimeConfig> {
-  const handle = await open(path, "r");
-  try {
-    const stat = await handle.stat();
-    if (!stat.isFile() || stat.size > MAX_RUNTIME_BYTES) {
-      throw new Error("runtime config file is invalid");
-    }
-    if (process.platform !== "win32") {
-      if ((stat.mode & 0o077) !== 0) {
-        throw new Error("runtime config permissions are too broad");
-      }
-      if (typeof process.getuid === "function" && stat.uid !== process.getuid()) {
-        throw new Error("runtime config has an unexpected owner");
-      }
-    }
-    const text = await handle.readFile("utf8");
-    return validateRuntimeConfig(JSON.parse(text));
-  } finally {
-    await handle.close();
-  }
 }
 
 async function readResponseText(response: Response): Promise<string> {
@@ -300,3 +242,5 @@ export async function runHook(options: RunHookOptions): Promise<HookRunResult> {
 export function nativeFallback(agent: HookAgent): string {
   return fallbackOutput(agent);
 }
+
+export * from "./runtime-config.js";

@@ -90,6 +90,13 @@ graph TB
 - 创建并持有所有核心运行时对象。
 - 收到 `SIGINT` 或 `SIGTERM` 时关闭权限请求、HTTP 服务和运行时锁。
 
+Receiver 内部按职责拆分：
+
+- `index.ts` 管理服务启动、关闭、监听地址和运行时发现文件。
+- `router.ts` 管理认证、HTTP 路由、Adapter 调用和协议响应。
+- `http.ts` 管理限长 JSON 读取和通用 JSON 响应。
+- `runtime-config.ts` 管理单实例锁及运行时发现文件的原子写入和清理。
+
 #### Hook runner 临时进程
 
 - 每次 Agent 触发 Hook 时启动。
@@ -98,6 +105,8 @@ graph TB
 - 发起一次 HTTP 请求。
 - 将权限结果写入 Agent stdout 后退出。
 - 不保存跨 Hook 状态。
+- `runtime-config.ts` 集中管理发现文件的读取、安全检查和字段校验；该实现保持零
+  运行时依赖，避免增加每次 Hook 启动的依赖加载成本。
 
 #### Hook installer 一次性进程
 

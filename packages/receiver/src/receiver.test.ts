@@ -160,6 +160,34 @@ test("malformed Copilot permission request falls back without entering broker", 
   assert.equal(snapshot.pendingPermissions.length, 0);
 });
 
+test("router maps malformed HTTP input without leaking internal errors", async (context) => {
+  const directory = await mkdtemp(join(tmpdir(), "vibemate-http-errors-"));
+  const receiver = new VibeMateReceiver({
+    runtimeFilePath: join(directory, "runtime.json"),
+  });
+  context.after(() => receiver.stop());
+  const address = await receiver.start();
+  const baseUrl = `http://${address.host}:${address.port}`;
+  const runtime = JSON.parse(await readFile(join(directory, "runtime.json"), "utf8"));
+  const headers = { "x-vibemate-token": runtime.authToken };
+
+  const unsupported = await fetch(`${baseUrl}/v1/hooks/codex`, {
+    method: "POST",
+    headers,
+    body: "{}",
+  });
+  assert.equal(unsupported.status, 415);
+  assert.deepEqual(await unsupported.json(), { error: "unsupported_media_type" });
+
+  const malformed = await fetch(`${baseUrl}/v1/hooks/codex`, {
+    method: "POST",
+    headers: { ...headers, "content-type": "application/json" },
+    body: "{",
+  });
+  assert.equal(malformed.status, 400);
+  assert.deepEqual(await malformed.json(), { error: "invalid_json" });
+});
+
 test("receiver can retry after a failed bind", async (context) => {
   const blocker = createServer();
   await new Promise<void>((resolve) => blocker.listen(0, "127.0.0.1", resolve));
