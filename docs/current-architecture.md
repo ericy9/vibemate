@@ -13,7 +13,8 @@
 - 权限请求 Broker
 - Hook 增量安装与卸载
 
-当前尚未实现 Electron、桌宠 Renderer、开发观察器、远程中继和会话持久化。
+当前已实现 Electron 开发界面和占位桌宠，尚未实现正式美术资源、托盘生命周期、
+远程中继和会话持久化。
 
 > 图表约定：运行流程图只表示请求实际按时间顺序经过的步骤；模块依赖、对象持有、
 > 文件查找和通信关系使用单独的结构图或依赖图表达。
@@ -64,7 +65,7 @@ graph TB
         PermissionBroker[PermissionBroker]
     end
 
-    FutureUI[未来 Observer / Electron UI]
+    Desktop[Electron Desktop]
 
     Codex -. 启动Hook命令 .-> Runner
     Copilot -. 启动Hook命令 .-> Runner
@@ -77,7 +78,8 @@ graph TB
     Receiver -. 持有 .-> SessionStore
     Receiver -. 持有 .-> PermissionBroker
 
-    FutureUI -. 快照和权限决定API .-> HTTP
+    Desktop -. 主进程持有并管理 .-> Receiver
+    Desktop -. 安全IPC快照与权限决定 .-> Desktop
 ```
 
 ### 3.1 进程类型
@@ -678,11 +680,8 @@ npm run hooks:uninstall
 
 尚未完成：
 
-- 开发观察器
-- Electron 主进程
-- Electron IPC
-- 桌宠 Renderer
-- 权限气泡 UI
+- 正式桌宠美术资源和逐帧动画
+- 托盘、透明悬浮窗和桌面生命周期
 - 会话持久化
 - SSE 或 WebSocket 实时推送
 - 远程加密 WebSocket 中继

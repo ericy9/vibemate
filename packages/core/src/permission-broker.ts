@@ -54,6 +54,7 @@ export class PermissionBroker {
   private readonly pending = new Map<string, PendingPermission>();
   private readonly finalized = new Set<string>();
   private readonly finalizedOrder: string[] = [];
+  private readonly listeners = new Set<() => void>();
   private readonly now: () => Date;
   private readonly maxFinalizedRequests: number;
   private readonly maxPendingRequests: number;
@@ -95,6 +96,7 @@ export class PermissionBroker {
       }
       this.pending.set(key, entry);
       this.scheduleExpiry(key, entry);
+      this.notify();
 
       if (signal?.aborted) {
         this.finalizeNoDecision(key, "request_aborted");
@@ -155,6 +157,13 @@ export class PermissionBroker {
     return [...this.pending.values()].map((entry) => structuredClone(entry.request));
   }
 
+  subscribe(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
   private finalizeNoDecision(key: string, reason: NoDecisionReason): void {
     const entry = this.pending.get(key);
     if (!entry) {
@@ -182,6 +191,7 @@ export class PermissionBroker {
     }
     this.rememberFinalized(key);
     entry.resolve(outcome);
+    this.notify();
   }
 
   private immediateNoDecision(
@@ -227,6 +237,12 @@ export class PermissionBroker {
       if (removed) {
         this.finalized.delete(removed);
       }
+    }
+  }
+
+  private notify(): void {
+    for (const listener of this.listeners) {
+      listener();
     }
   }
 }

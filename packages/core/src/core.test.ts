@@ -95,6 +95,28 @@ test("session store emits at most one completion per turn", () => {
   })).result, "duplicate_completion");
 });
 
+test("session store notifies subscribers when its visible snapshot changes", () => {
+  const store = new SessionStore();
+  let notifications = 0;
+  const unsubscribe = store.subscribe(() => {
+    notifications += 1;
+  });
+
+  store.apply(event());
+  store.apply(event());
+  store.apply(event({
+    eventId: "event-0",
+    occurredAt: "2026-08-13T11:59:00.000Z",
+  }));
+  unsubscribe();
+  store.apply(event({
+    eventId: "event-2",
+    occurredAt: "2026-08-13T12:01:00.000Z",
+  }));
+
+  assert.equal(notifications, 2);
+});
+
 test("permission broker accepts only a matching first decision", async () => {
   const broker = new PermissionBroker({
     now: () => new Date("2026-08-13T12:00:05.000Z"),
@@ -146,6 +168,41 @@ test("permission broker accepts only a matching first decision", async () => {
     decision: "allow",
     decidedAt: "2026-08-13T12:00:08.000Z",
   })), "already_finalized");
+});
+
+test("permission broker notifies subscribers when pending requests change", async () => {
+  const broker = new PermissionBroker({
+    now: () => new Date("2026-08-13T12:00:05.000Z"),
+  });
+  const pendingCounts: number[] = [];
+  const unsubscribe = broker.subscribe(() => {
+    pendingCounts.push(broker.listPending().length);
+  });
+  const request = parsePermissionRequest({
+    protocolVersion: 1,
+    requestId: "request-notify",
+    sourceProfile: "local",
+    agent: "codex",
+    sessionId: "session-1",
+    occurredAt: "2026-08-13T12:00:00.000Z",
+    expiresAt: "2026-08-13T12:01:00.000Z",
+    tool: { name: "shell" },
+  });
+
+  const outcome = broker.waitForDecision(request);
+  broker.submitDecision(parsePermissionDecision({
+    protocolVersion: 1,
+    requestId: request.requestId,
+    sourceProfile: request.sourceProfile,
+    agent: request.agent,
+    sessionId: request.sessionId,
+    decision: "allow",
+    decidedAt: "2026-08-13T12:00:06.000Z",
+  }));
+  await outcome;
+  unsubscribe();
+
+  assert.deepEqual(pendingCounts, [1, 0]);
 });
 
 test("permission broker isolates equal request ids across sessions", async () => {

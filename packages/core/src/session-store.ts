@@ -57,6 +57,7 @@ export class SessionStore {
   private readonly sessions = new Map<string, SessionRecord>();
   private readonly seenEventIds = new Set<string>();
   private readonly seenEventOrder: string[] = [];
+  private readonly listeners = new Set<() => void>();
   private readonly maxRecentEvents: number;
   private readonly maxSeenEventIds: number;
   private readonly maxCompletedTurnsPerSession: number;
@@ -106,11 +107,13 @@ export class SessionStore {
       if (event.state === "completed" && event.turnId) {
         this.rememberCompletedTurn(record, event.turnId);
       }
+      this.notify();
       return { result: "applied", session: cloneSnapshot(record) };
     }
 
     this.rememberRecentEvent(record, event);
     if (compareEventToState(event, record) <= 0) {
+      this.notify();
       return { result: "stale", session: cloneSnapshot(record) };
     }
 
@@ -122,6 +125,7 @@ export class SessionStore {
     if (event.state === "completed" && event.turnId) {
       this.rememberCompletedTurn(record, event.turnId);
     }
+    this.notify();
 
     return { result: "applied", session: cloneSnapshot(record) };
   }
@@ -135,6 +139,13 @@ export class SessionStore {
     return [...this.sessions.values()]
       .map(cloneSnapshot)
       .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt));
+  }
+
+  subscribe(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
   }
 
   private rememberEventId(eventId: string): void {
@@ -164,6 +175,12 @@ export class SessionStore {
       if (removed) {
         record.completedTurns.delete(removed);
       }
+    }
+  }
+
+  private notify(): void {
+    for (const listener of this.listeners) {
+      listener();
     }
   }
 }

@@ -1,0 +1,309 @@
+:root {
+  color: #e5e7eb;
+  background: #111827;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 360px;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top, rgb(59 130 246 / 18%), transparent 38%),
+    #111827;
+}
+
+main {
+  display: grid;
+  gap: 14px;
+  padding: 22px;
+}
+
+.pet-panel {
+  display: grid;
+  place-items: center;
+  min-height: 250px;
+}
+
+.pet {
+  --pet-color: #60a5fa;
+  position: relative;
+  width: 150px;
+  height: 140px;
+  border: 5px solid #0f172a;
+  border-radius: 44% 44% 36% 36%;
+  background: var(--pet-color);
+  box-shadow: 0 18px 35px rgb(0 0 0 / 30%);
+  animation: breathe 2.2s ease-in-out infinite;
+}
+
+.antenna {
+  position: absolute;
+  top: -35px;
+  left: 68px;
+  width: 7px;
+  height: 34px;
+  border-radius: 4px;
+  background: #0f172a;
+}
+
+.antenna::before {
+  content: "";
+  position: absolute;
+  top: -7px;
+  left: -5px;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  background: var(--pet-color);
+  border: 4px solid #0f172a;
+}
+
+.face {
+  display: flex;
+  justify-content: center;
+  gap: 34px;
+  padding-top: 55px;
+}
+
+.eye {
+  width: 13px;
+  height: 20px;
+  border-radius: 50%;
+  background: #0f172a;
+  animation: blink 4s infinite;
+}
+
+.status-mark {
+  position: absolute;
+  right: -15px;
+  top: 8px;
+  min-width: 34px;
+  height: 34px;
+  padding: 4px;
+  border: 4px solid #0f172a;
+  border-radius: 50%;
+  background: #f8fafc;
+  color: #0f172a;
+  font-weight: 900;
+  text-align: center;
+  line-height: 18px;
+}
+
+.status-mark::after {
+  content: "·";
+}
+
+.state-thinking {
+  --pet-color: #a78bfa;
+  animation: think 1.4s ease-in-out infinite;
+}
+
+.state-thinking .status-mark::after {
+  content: "?";
+}
+
+.state-working {
+  --pet-color: #34d399;
+  animation: work 0.55s ease-in-out infinite alternate;
+}
+
+.state-working .status-mark::after {
+  content: ">";
+}
+
+.state-waiting_permission {
+  --pet-color: #fbbf24;
+  animation: attention 0.8s ease-in-out infinite alternate;
+}
+
+.state-waiting_permission .status-mark::after {
+  content: "!";
+}
+
+.state-completed {
+  --pet-color: #4ade80;
+  animation: celebrate 0.7s ease-in-out infinite alternate;
+}
+
+.state-completed .status-mark::after {
+  content: "✓";
+}
+
+.state-failed {
+  --pet-color: #fb7185;
+  animation: shake 0.35s linear infinite;
+}
+
+.state-failed .status-mark::after {
+  content: "×";
+}
+
+.state-ended {
+  --pet-color: #94a3b8;
+  opacity: 0.8;
+}
+
+.state-ended .eye {
+  height: 4px;
+  margin-top: 10px;
+  border-radius: 4px;
+  animation: none;
+}
+
+.state-ended .status-mark::after {
+  content: "z";
+}
+
+.state-label {
+  margin: 18px 0 2px;
+  font-size: 22px;
+  font-weight: 800;
+}
+
+.state-description {
+  margin: 0;
+  color: #94a3b8;
+}
+
+.card {
+  padding: 15px;
+  border: 1px solid rgb(148 163 184 / 16%);
+  border-radius: 16px;
+  background: rgb(15 23 42 / 78%);
+}
+
+.section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+h1,
+h2 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.badge {
+  min-width: 25px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #1e3a8a;
+  text-align: center;
+  font-size: 12px;
+}
+
+.badge.alert:not(:empty) {
+  background: #92400e;
+}
+
+.list {
+  display: grid;
+  gap: 8px;
+}
+
+.list.empty {
+  padding: 12px 0;
+  color: #64748b;
+  font-size: 13px;
+  text-align: center;
+}
+
+.list-row,
+.permission-row {
+  padding: 10px;
+  border-radius: 10px;
+  background: rgb(30 41 59 / 75%);
+}
+
+.list-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.list-row div,
+.permission-row {
+  display: grid;
+  gap: 3px;
+}
+
+.list-row span,
+.permission-row span,
+.list-row time {
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.permission-row p {
+  margin: 6px 0;
+  color: #cbd5e1;
+  font-size: 13px;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+button {
+  min-width: 72px;
+  padding: 7px 12px;
+  border: 0;
+  border-radius: 8px;
+  color: white;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+button:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+button.allow {
+  background: #15803d;
+}
+
+button.deny {
+  background: #be123c;
+}
+
+@keyframes breathe {
+  50% { transform: translateY(-5px) scale(1.02); }
+}
+
+@keyframes blink {
+  0%, 46%, 50%, 100% { transform: scaleY(1); }
+  48% { transform: scaleY(0.08); }
+}
+
+@keyframes think {
+  50% { transform: rotate(-3deg) translateY(-4px); }
+}
+
+@keyframes work {
+  to { transform: translateX(5px) rotate(2deg); }
+}
+
+@keyframes attention {
+  to { transform: translateY(-9px); }
+}
+
+@keyframes celebrate {
+  to { transform: translateY(-14px) scale(1.04); }
+}
+
+@keyframes shake {
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
+}

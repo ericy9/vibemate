@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VibeMate</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <main>
+      <section class="pet-panel">
+        <div id="pet" class="pet state-idle" role="img" aria-label="桌宠当前空闲">
+          <div class="antenna"></div>
+          <div class="face">
+            <span class="eye"></span>
+            <span class="eye"></span>
+          </div>
+          <div class="status-mark"></div>
+        </div>
+        <p id="state-label" class="state-label">空闲</p>
+        <p id="state-description" class="state-description">等待 Agent 会话</p>
+      </section>
+
+      <section class="card">
+        <div class="section-heading">
+          <h1>会话</h1>
+          <span id="session-count" class="badge">0</span>
+        </div>
+        <div id="sessions" class="list empty">暂无会话</div>
+      </section>
+
+      <section class="card">
+        <div class="section-heading">
+          <h2>权限请求</h2>
+          <span id="permission-count" class="badge alert">0</span>
+        </div>
+        <div id="permissions" class="list empty">暂无待处理请求</div>
+      </section>
+    </main>
+    <script type="module" src="./renderer.js"></script>
+  </body>
+</html>
