@@ -11,7 +11,7 @@ GitHub Copilot CLI 会话，在任务需要用户注意时发出提醒，并允�
 
 目前处于本机 Agent 集成和桌面端骨架阶段。仓库已包含 Protocol v1、会话存储、
 权限 Broker、Codex/Copilot 事件映射、loopback HTTP 接收服务、Hook runner、
-增量安装器，以及由实时状态驱动的 Electron 开发界面和七状态占位桌宠。
+增量安装器，以及由实时状态驱动的 Electron 控制面板、托盘和七状态悬浮占位桌宠。
 
 ## 项目文档
 

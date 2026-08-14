@@ -13,8 +13,8 @@
 - 权限请求 Broker
 - Hook 增量安装与卸载
 
-当前已实现 Electron 开发界面和占位桌宠，尚未实现正式美术资源、托盘生命周期、
-远程中继和会话持久化。
+当前已实现 Electron 控制面板、托盘生命周期、透明悬浮占位桌宠和位置记忆，尚未
+实现正式美术资源、安装打包、远程中继和会话持久化。
 
 > 图表约定：运行流程图只表示请求实际按时间顺序经过的步骤；模块依赖、对象持有、
 > 文件查找和通信关系使用单独的结构图或依赖图表达。
@@ -66,6 +66,9 @@ graph TB
     end
 
     Desktop[Electron Desktop]
+    Tray[系统托盘]
+    Pet[透明悬浮桌宠]
+    Panel[控制面板]
 
     Codex -. 启动Hook命令 .-> Runner
     Copilot -. 启动Hook命令 .-> Runner
@@ -79,7 +82,11 @@ graph TB
     Receiver -. 持有 .-> PermissionBroker
 
     Desktop -. 主进程持有并管理 .-> Receiver
-    Desktop -. 安全IPC快照与权限决定 .-> Desktop
+    Desktop -. 创建和管理 .-> Tray
+    Desktop -. 创建和管理 .-> Pet
+    Desktop -. 创建和管理 .-> Panel
+    Desktop -. 安全IPC快照与权限决定 .-> Pet
+    Desktop -. 安全IPC快照与权限决定 .-> Panel
 ```
 
 ### 3.1 进程类型
@@ -681,7 +688,7 @@ npm run hooks:uninstall
 尚未完成：
 
 - 正式桌宠美术资源和逐帧动画
-- 托盘、透明悬浮窗和桌面生命周期
+- Windows/macOS/Linux 安装打包和自启动
 - 会话持久化
 - SSE 或 WebSocket 实时推送
 - 远程加密 WebSocket 中继

@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld("vibemate", {
   submitDecision: (identity, decision) => (
     ipcRenderer.invoke("vibemate:submit-decision", identity, decision)
   ),
+  showControlPanel: () => ipcRenderer.send("vibemate:show-control"),
   onSnapshot: (listener) => {
     const handler = (_event, snapshot) => listener(snapshot);
     ipcRenderer.on("vibemate:snapshot", handler);

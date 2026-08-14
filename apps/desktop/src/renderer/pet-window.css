@@ -1,0 +1,62 @@
+:root,
+body {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: transparent;
+  color-scheme: normal;
+}
+
+.pet-window {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 220px;
+  height: 230px;
+  padding: 28px 20px 10px;
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+.pet-window .pet-panel {
+  min-height: 0;
+}
+
+.pet-window .pet {
+  transform-origin: center bottom;
+}
+
+.pet-window .state-label {
+  margin-top: 14px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgb(15 23 42 / 78%);
+  color: #f8fafc;
+  font-size: 13px;
+  box-shadow: 0 5px 18px rgb(0 0 0 / 22%);
+}
+
+.open-panel {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 2;
+  min-width: 30px;
+  width: 30px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid rgb(255 255 255 / 22%);
+  border-radius: 9px;
+  background: rgb(15 23 42 / 78%);
+  color: #e2e8f0;
+  font-size: 18px;
+  line-height: 20px;
+  opacity: 0;
+  transition: opacity 120ms ease;
+  -webkit-app-region: no-drag;
+}
+
+.pet-window:hover .open-panel,
+.open-panel:focus-visible {
+  opacity: 1;
+}

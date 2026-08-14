@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VibeMate Pet</title>
+    <link rel="stylesheet" href="./styles.css">
+    <link rel="stylesheet" href="./pet-window.css">
+  </head>
+  <body>
+    <main class="pet-window">
+      <button id="open-panel" class="open-panel" type="button" aria-label="打开控制面板">⋯</button>
+      <section class="pet-panel">
+        <div id="pet" class="pet state-idle" role="img" aria-label="桌宠当前空闲">
+          <div class="antenna"></div>
+          <div class="face">
+            <span class="eye"></span>
+            <span class="eye"></span>
+          </div>
+          <div class="status-mark"></div>
+        </div>
+        <p id="state-label" class="state-label">空闲</p>
+      </section>
+    </main>
+    <script type="module" src="./pet-renderer.js"></script>
+  </body>
+</html>
