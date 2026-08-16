@@ -17,8 +17,8 @@ import { VibeMateReceiver } from "@vibemate/receiver";
 const sourceDirectory = fileURLToPath(new URL(".", import.meta.url));
 const rendererDirectory = join(sourceDirectory, "../src/renderer");
 const preloadPath = join(sourceDirectory, "../src/preload.cjs");
-const PET_WIDTH = 220;
-const PET_HEIGHT = 230;
+const PET_WIDTH = 320;
+const PET_HEIGHT = 340;
 const PET_MARGIN = 20;
 
 const receiver = new VibeMateReceiver({
@@ -169,7 +169,10 @@ async function createPetWindow(): Promise<BrowserWindow> {
   const window = new BrowserWindow({
     ...(await loadPetBounds()),
     transparent: true,
+    backgroundColor: "#00000000",
+    type: "toolbar",
     frame: false,
+    focusable: false,
     resizable: false,
     hasShadow: false,
     alwaysOnTop: true,
@@ -182,6 +185,7 @@ async function createPetWindow(): Promise<BrowserWindow> {
       sandbox: true,
     },
   });
+  window.setHasShadow(false);
   window.setAlwaysOnTop(true, "floating");
   window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   void window.loadFile(join(rendererDirectory, "pet.html"));
@@ -261,6 +265,7 @@ function createTray(): Tray {
 
 ipcMain.handle("vibemate:get-snapshot", () => getSnapshot());
 ipcMain.on("vibemate:show-control", showControlWindow);
+ipcMain.on("vibemate:quit", () => app.quit());
 ipcMain.handle(
   "vibemate:submit-decision",
   (_event, identity: unknown, decision: unknown) => {
@@ -304,17 +309,21 @@ ipcMain.handle(
 receiver.sessions.subscribe(scheduleSnapshot);
 receiver.permissions.subscribe(scheduleSnapshot);
 
-await app.whenReady();
-try {
-  await receiver.start();
-  controlWindow = createControlWindow();
-  petWindow = await createPetWindow();
-  createTray();
-} catch (error) {
-  const message = error instanceof Error ? error.message : "unknown startup error";
-  console.error(`VibeMate desktop failed to start: ${message}`);
-  app.exit(1);
+async function startDesktop(): Promise<void> {
+  await app.whenReady();
+  try {
+    await receiver.start();
+    controlWindow = createControlWindow();
+    petWindow = await createPetWindow();
+    createTray();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "unknown startup error";
+    console.error(`VibeMate desktop failed to start: ${message}`);
+    app.exit(1);
+  }
 }
+
+void startDesktop();
 
 app.on("activate", () => {
   showControlWindow();

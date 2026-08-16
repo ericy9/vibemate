@@ -9,9 +9,20 @@
   </head>
   <body>
     <main class="pet-window">
+      <button id="quit-app" class="window-action quit-app" type="button" aria-label="退出 VibeMate" title="退出 VibeMate">×</button>
       <button id="open-panel" class="open-panel" type="button" aria-label="打开控制面板">⋯</button>
       <section class="pet-panel">
-        <div id="pet" class="pet state-idle" role="img" aria-label="桌宠当前空闲">
+        <div id="pet" class="pet state-idle has-video" role="img" aria-label="桌宠当前空闲">
+          <video
+            id="pet-video"
+            class="pet-video"
+            src="./assets/pet/idle.webm"
+            muted
+            loop
+            autoplay
+            playsinline
+            aria-hidden="true"
+          ></video>
           <div class="antenna"></div>
           <div class="face">
             <span class="eye"></span>

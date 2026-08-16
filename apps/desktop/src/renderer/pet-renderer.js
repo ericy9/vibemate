@@ -9,8 +9,10 @@ const stateLabels = {
 };
 
 const pet = document.querySelector("#pet");
+const petVideo = document.querySelector("#pet-video");
 const stateLabel = document.querySelector("#state-label");
 const openPanel = document.querySelector("#open-panel");
+const quitApp = document.querySelector("#quit-app");
 
 function render(snapshot) {
   const sessions = Array.isArray(snapshot?.sessions) ? snapshot.sessions : [];
@@ -23,12 +25,23 @@ function render(snapshot) {
   const label = stateLabels[state] ?? stateLabels.idle;
 
   pet.className = `pet state-${state}`;
+  pet.classList.toggle("has-video", state === "idle");
   pet.setAttribute("aria-label", `桌宠当前状态：${label}`);
   stateLabel.textContent = label;
+
+  if (state === "idle") {
+    void petVideo?.play().catch(() => undefined);
+  } else {
+    petVideo?.pause();
+  }
 }
 
 openPanel.addEventListener("click", () => {
   window.vibemate.showControlPanel();
+});
+
+quitApp.addEventListener("click", () => {
+  window.vibemate.quitApp();
 });
 
 window.vibemate.onSnapshot(render);
