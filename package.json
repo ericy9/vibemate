@@ -14,6 +14,8 @@
     "typecheck": "tsc -b packages/protocol packages/core packages/adapter-common packages/adapter-codex packages/adapter-copilot packages/receiver packages/hook-runner packages/hook-installer apps/desktop --pretty false",
     "start:receiver": "npm run build && node packages/receiver/dist/cli.js",
     "start:desktop": "npm run build && electron apps/desktop",
+    "assets:pet": "bash scripts/process-pet-assets.sh",
+    "seedance": "node scripts/seedance.mjs",
     "hooks:install": "npm run build && node packages/hook-installer/dist/cli.js install",
     "hooks:uninstall": "npm run build && node packages/hook-installer/dist/cli.js uninstall"
   },

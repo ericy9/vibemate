@@ -29,3 +29,30 @@ GitHub Copilot CLI 会话，在任务需要用户注意时发出提醒，并允�
 
 远程 Linux、WSL2、树莓派、桌面宠物、系统通知和个人生活提醒，将在编码端
 采集层得到验证后分阶段实现。
+
+## 本地请求 Seedance
+
+使用 OpenLux 的豆包 Volc 接口创建 Seedance 2.0 视频任务：
+
+```bash
+export OPENLUX_API_KEY="你的 API Key"
+npm run seedance -- create "一只像素风小狗在桌面上摇尾巴" \
+  --image assets/raw-videos/geenBGlight.png \
+  --duration 5 --ratio 16:9 --resolution 720p \
+  --download output.mp4
+```
+
+默认模型为 `doubao-seedance-2-0-260128`。仅创建任务、不等待：
+
+```bash
+npm run seedance -- create "视频描述"
+```
+
+查询或继续等待已有任务：
+
+```bash
+npm run seedance -- get cgt-任务ID
+npm run seedance -- wait cgt-任务ID --download output.mp4
+```
+
+密钥只从 `OPENLUX_API_KEY` 环境变量读取，不要写入仓库。
