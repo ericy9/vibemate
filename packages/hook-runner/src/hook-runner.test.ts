@@ -186,14 +186,8 @@ test("permission output is canonicalized before reaching the agent", async (cont
   }));
 });
 
-test("unsafe permission responses are rejected for native fallback", async () => {
-  const response = new Response(JSON.stringify({
-    behavior: "allow",
-    command: "unexpected",
-  }), { status: 200 });
-  const runtimeFilePath = await writeRuntime(12345);
-
-  await assert.rejects(() => runHook({
+test("legacy Copilot permission hooks bypass runtime and transport entirely", async () => {
+  const result = await runHook({
     agent: "copilot",
     eventName: "permissionRequest",
     input: JSON.stringify({
@@ -201,9 +195,10 @@ test("unsafe permission responses are rejected for native fallback", async () =>
       toolName: "shell",
       toolInput: {},
     }),
-    runtimeFilePath,
-    fetchImpl: async () => response,
-  }), /invalid Copilot permission response/);
+    runtimeFilePath: "/nonexistent/vibemate-runtime.json",
+    fetchImpl: async () => { throw new Error("transport must not be used"); },
+  });
+  assert.deepEqual(result, { stdout: "", delivered: false, permission: true });
   assert.equal(nativeFallback("copilot"), "");
 });
 

@@ -51,7 +51,8 @@ export class CopilotAdapter {
       return this.adaptPermission(payload);
     }
 
-    const state = COPILOT_STATES[eventName];
+    const state = eventName === "notification" && payload.notification_type === "permission_prompt"
+      ? "waiting_permission" : COPILOT_STATES[eventName];
     if (!state) {
       return { kind: "ignored", reason: `unsupported Copilot event: ${eventName}` };
     }
@@ -84,7 +85,7 @@ export class CopilotAdapter {
         agent: "copilot",
         sessionId,
         state,
-        event: eventName,
+        event: eventName === "notification" ? "permission_prompt" : eventName,
         occurredAt: this.runtime.occurredAt(payload.timestamp ?? payload.occurredAt),
         ...(turnId ? { turnId } : {}),
         ...(cwd ? { cwd } : {}),

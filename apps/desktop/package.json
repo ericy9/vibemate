@@ -6,9 +6,13 @@
   "main": "./dist/main.js",
   "dependencies": {
     "@vibemate/protocol": "*",
-    "@vibemate/receiver": "*"
+    "@vibemate/hook-installer": "*",
+    "@vibemate/receiver": "*",
+    "ws": "^8.21.3"
   },
   "devDependencies": {
-    "electron": "^43.4.0"
+    "@types/ws": "^8.18.1",
+    "electron": "^43.4.0",
+    "electron-builder": "^26.0.12"
   }
 }

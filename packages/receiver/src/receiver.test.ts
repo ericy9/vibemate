@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import WebSocket from "ws";
 import { VibeMateReceiver } from "./index.js";
 
 async function postJson(
@@ -65,6 +66,7 @@ test("permission decision returns to the exact waiting Codex request", async (co
   const directory = await mkdtemp(join(tmpdir(), "vibemate-permission-"));
   let id = 0;
   const receiver = new VibeMateReceiver({
+    codexApprovalsEnabled: true,
     runtimeFilePath: join(directory, "runtime.json"),
     adapterRuntime: {
       now: () => new Date("2026-08-13T12:00:00.000Z"),
@@ -150,7 +152,7 @@ test("malformed Copilot permission request falls back without entering broker", 
     toolName: "edit",
     },
   );
-  assert.equal(response.status, 422);
+  assert.equal(response.status, 204);
 
   const snapshot = await (await fetch(`${baseUrl}/v1/snapshot`, {
     headers: { "x-vibemate-token": runtime.authToken },
@@ -207,4 +209,101 @@ test("receiver can retry after a failed bind", async (context) => {
 
   const address = await receiver.start();
   assert.equal(address.host, "127.0.0.1");
+});
+
+test("LAN stream pushes snapshots and returns permission decisions", async (context) => {
+  const directory = await mkdtemp(join(tmpdir(), "vibemate-lan-"));
+  let id = 0;
+  const lanToken = "test-lan-token";
+  const receiver = new VibeMateReceiver({
+    runtimeFilePath: join(directory, "runtime.json"),
+    lan: {
+      host: "127.0.0.1",
+      port: 0,
+      authToken: lanToken,
+    },
+    adapterRuntime: {
+      now: () => new Date("2026-08-13T12:00:00.000Z"),
+      generateId: () => `id-${++id}`,
+    },
+  });
+  context.after(() => receiver.stop());
+  const address = await receiver.start();
+  const lanAddress = receiver.getLanAddress();
+  assert.ok(lanAddress);
+  const runtime = JSON.parse(await readFile(join(directory, "runtime.json"), "utf8"));
+
+  const webSocket = new WebSocket(
+    `ws://${lanAddress.host}:${lanAddress.port}/v1/stream`,
+    { headers: { Authorization: `Bearer ${lanToken}` } },
+  );
+  context.after(() => webSocket.close());
+  await new Promise<void>((resolve, reject) => {
+    webSocket.once("open", resolve);
+    webSocket.once("error", reject);
+  });
+  const configured = new Promise<void>(resolve => {
+    webSocket.on("message", data => { if (JSON.parse(data.toString()).commandId === "enable") resolve(); });
+  });
+  webSocket.send(JSON.stringify({ type: "set_codex_approvals", commandId: "enable", enabled: true }));
+  await configured;
+
+  const hookResponsePromise = postJson(
+    `http://${address.host}:${address.port}`,
+    runtime.authToken,
+    "/v1/hooks/codex",
+    {
+      hook_event_name: "PermissionRequest",
+      session_id: "remote-session",
+      tool_name: "Bash",
+      tool_input: {
+        command: "npm test",
+        description: "Run tests",
+      },
+    },
+  );
+
+  const pending = await new Promise<{
+    requestId: string;
+    sourceProfile: string;
+    agent: "codex";
+    sessionId: string;
+  }>((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error("snapshot timed out")), 2_000);
+    webSocket.on("message", (data) => {
+      const message = JSON.parse(data.toString());
+      const request = message.snapshot?.pendingPermissions?.[0];
+      if (!request) return;
+      clearTimeout(timeout);
+      resolve(request);
+    });
+    webSocket.on("error", reject);
+  });
+
+  const resultPromise = new Promise<string>((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error("decision result timed out")), 2_000);
+    webSocket.on("message", (data) => {
+      const message = JSON.parse(data.toString());
+      if (message.type !== "permission_decision_result") return;
+      clearTimeout(timeout);
+      resolve(message.result);
+    });
+  });
+  webSocket.send(JSON.stringify({
+    type: "permission_decision",
+    commandId: "command-1",
+    decision: {
+      protocolVersion: 1,
+      requestId: pending.requestId,
+      sourceProfile: pending.sourceProfile,
+      agent: pending.agent,
+      sessionId: pending.sessionId,
+      decision: "allow",
+      decidedAt: "2026-08-13T12:00:01.000Z",
+    },
+  }));
+
+  assert.equal(await resultPromise, "accepted");
+  const hookResponse = await hookResponsePromise;
+  assert.equal(hookResponse.status, 200);
 });

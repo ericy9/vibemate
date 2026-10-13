@@ -60,6 +60,12 @@ export class ReceiverRouter {
 
       const copilotMatch = url.pathname.match(/^\/v1\/hooks\/copilot\/([a-zA-Z]+)$/);
       if (request.method === "POST" && copilotMatch?.[1]) {
+        if (copilotMatch[1] === "permissionRequest") {
+          request.resume();
+          response.writeHead(204);
+          response.end();
+          return;
+        }
         const result = this.options.copilot.adapt(
           copilotMatch[1],
           await readJson(request, MAX_RAW_HOOK_BYTES),
@@ -98,11 +104,13 @@ export class ReceiverRouter {
       return;
     }
 
-    const applied = this.options.sessions.apply(result.event);
     if (result.kind === "event") {
+      const applied = this.options.sessions.apply(result.event);
       sendJson(response, 202, { result: applied.result });
       return;
     }
+
+    if (this.options.permissions.isControllerAvailable()) this.options.sessions.apply(result.event);
 
     const controller = new AbortController();
     const abort = () => controller.abort();

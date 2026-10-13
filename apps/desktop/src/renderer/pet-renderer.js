@@ -16,12 +16,14 @@ const stateLoops = {
   waiting_permission: "waiting-permission",
 };
 const permissionReminderDelayMs = 30_000;
+const statePriority = { waiting_permission: 7, failed: 6, completed: 5, working: 4, thinking: 3, idle: 2, ended: 1 };
 
 const pet = document.querySelector("#pet");
 const petVideo = document.querySelector("#pet-video");
 const stateLabel = document.querySelector("#state-label");
 const openPanel = document.querySelector("#open-panel");
 const quitApp = document.querySelector("#quit-app");
+const outsideBadge = document.querySelector("#outside-badge");
 
 let requestedState;
 let activeState = "idle";
@@ -155,13 +157,26 @@ async function transitionTo(state) {
 }
 
 function render(snapshot) {
-  const sessions = Array.isArray(snapshot?.sessions) ? snapshot.sessions : [];
-  const permissions = Array.isArray(snapshot?.pendingPermissions)
+  const allSessions = Array.isArray(snapshot?.sessions) ? snapshot.sessions : [];
+  const allPermissions = Array.isArray(snapshot?.pendingPermissions)
     ? snapshot.pendingPermissions
     : [];
-  const state = permissions.length > 0
-    ? "waiting_permission"
-    : sessions[0]?.state ?? "idle";
+  const focus = snapshot?.preferences?.focus ?? { kind: "all" };
+  const matches = (item) => focus.kind === "all"
+    || (focus.kind === "device" && item.deviceId === focus.id)
+    || (focus.kind === "environment" && item.environmentId === focus.id)
+    || (focus.kind === "project" && item.sourceProfile === focus.id)
+    || (focus.kind === "session" && `${item.environmentId}/${item.agent}/${item.sessionId}` === focus.id);
+  const sessions = allSessions.filter(matches);
+  const permissions = allPermissions.filter(matches);
+  const outsideAttention = allPermissions.filter((item) => !matches(item)).length
+    + allSessions.filter((item) => !matches(item) && item.state === "failed").length;
+  outsideBadge.hidden = outsideAttention === 0;
+  outsideBadge.textContent = outsideAttention > 99 ? "99+" : String(outsideAttention);
+  const primary = sessions.reduce((best, item) => (
+    !best || (statePriority[item.state] ?? 0) > (statePriority[best.state] ?? 0) ? item : best
+  ), undefined);
+  const state = permissions.length > 0 ? "waiting_permission" : primary?.state ?? "idle";
   const label = stateLabels[state] ?? stateLabels.idle;
 
   pet.className = `pet state-${state}`;

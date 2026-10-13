@@ -3,38 +3,32 @@
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VibeMate</title>
+    <title>VibeMate 设置</title>
     <link rel="stylesheet" href="./styles.css">
   </head>
   <body>
-    <main>
-      <section class="pet-panel">
-        <div id="pet" class="pet state-idle" role="img" aria-label="桌宠当前空闲">
-          <div class="antenna"></div>
-          <div class="face">
-            <span class="eye"></span>
-            <span class="eye"></span>
+    <main class="settings">
+      <header class="settings-heading">
+        <h1>设置</h1>
+        <p class="connection-detail">日常任务状态请看悬浮监控窗和桌宠。这里只管理环境与偏好。</p>
+      </header>
+
+      <section class="card">
+        <div class="section-heading">
+          <h2>环境</h2>
+          <div class="heading-actions">
+            <button id="add-ssh" class="compact" type="button">添加 SSH</button>
+            <button id="scan-environments" class="compact" type="button">扫描本机与 WSL</button>
           </div>
-          <div class="status-mark"></div>
         </div>
-        <p id="state-label" class="state-label">空闲</p>
-        <p id="state-description" class="state-description">等待 Agent 会话</p>
+        <p id="onboarding-tip" class="connection-detail">请选择要监控的环境。VibeMate 不会自动启动已关闭的 WSL，也不会自动连接 SSH。</p>
+        <div id="environments" class="list empty">正在检测环境…</div>
       </section>
 
       <section class="card">
-        <div class="section-heading">
-          <h1>会话</h1>
-          <span id="session-count" class="badge">0</span>
-        </div>
-        <div id="sessions" class="list empty">暂无会话</div>
-      </section>
-
-      <section class="card">
-        <div class="section-heading">
-          <h2>权限请求</h2>
-          <span id="permission-count" class="badge alert">0</span>
-        </div>
-        <div id="permissions" class="list empty">暂无待处理请求</div>
+        <div class="section-heading"><h2>桌宠关注范围</h2></div>
+        <select id="pet-focus" aria-label="桌宠关注范围"><option value="all:">全部任务</option></select>
+        <p class="connection-detail">范围外的审批和错误只显示角标，不会抢占桌宠动画。悬浮监控窗始终显示全部环境。</p>
       </section>
     </main>
     <script type="module" src="./renderer.js"></script>

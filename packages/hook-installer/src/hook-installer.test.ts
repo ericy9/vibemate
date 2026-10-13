@@ -13,6 +13,26 @@ import {
 
 const RUNNER_PATH = process.execPath;
 
+test("Copilot upgrade removes only owned legacy approvals and installs notifications idempotently", async context => {
+  const homeDir = await temporaryHome(context);
+  const path = join(homeDir, ".copilot", "hooks", "vibemate.json");
+  await mkdir(join(homeDir, ".copilot", "hooks"), { recursive: true });
+  const user = { type: "command", bash: "user-policy" };
+  const legacy = { type: "command", bash: "node old-runner copilot permissionRequest --vibemate-hook-runner" };
+  await writeFile(path, JSON.stringify({ version: 1, hooks: {
+    permissionRequest: [legacy, user],
+    PermissionRequest: [{ matcher: "Bash", hooks: [{ command: "user-policy" }, { command: "old --vibemate-hook-runner" }] }],
+  } }));
+  const first = await installCopilotHooks({ homeDir, runnerPath: RUNNER_PATH });
+  assert.ok(first.backupPath);
+  const hooks = (await readJson(path)).hooks as Record<string, unknown[]>;
+  assert.deepEqual(hooks.permissionRequest, [user]);
+  assert.deepEqual(hooks.PermissionRequest, [{ matcher: "Bash", hooks: [{ command: "user-policy" }] }]);
+  assert.equal((hooks.notification?.[0] as { matcher: string }).matcher, "permission_prompt");
+  const second = await installCopilotHooks({ homeDir, runnerPath: RUNNER_PATH });
+  assert.equal(second.changed, false);
+});
+
 async function temporaryHome(context: test.TestContext): Promise<string> {
   const path = await mkdtemp(join(tmpdir(), "vibemate-installer-"));
   context.after(() => rm(path, { recursive: true, force: true }));
@@ -71,16 +91,36 @@ test("Copilot installation uses a dedicated config file", async (context) => {
   });
 
   assert.equal(result.changed, true);
-  assert.equal(result.permissionInstalled, true);
+  assert.equal(result.permissionInstalled, false);
   assert.equal(result.added, hookEvents.copilot.length);
   const installed = await readJson(result.configPath);
   assert.equal(installed.version, 1);
   const hooks = installed.hooks as Record<string, unknown[]>;
-  assert.equal(hooks.permissionRequest?.length, 1);
+  assert.equal(hooks.permissionRequest, undefined);
+  assert.equal(hooks.notification?.length, 1);
   assert.equal(hooks.sessionStart?.length, 1);
 });
 
-test("Copilot permission installation is blocked by an existing user hook", async (context) => {
+test("packaged desktop hooks enable Electron's Node mode", async (context) => {
+  const homeDir = await temporaryHome(context);
+  const codex = await installCodexHooks({
+    homeDir, runnerPath: RUNNER_PATH, nodePath: process.execPath,
+    platform: "win32", electronAsNode: true,
+  });
+  const codexConfig = await readJson(codex.configPath);
+  const codexHooks = codexConfig.hooks as Record<string, Array<{ hooks: Array<{ commandWindows: string }> }>>;
+  assert.match(codexHooks.SessionStart?.[0]?.hooks[0]?.commandWindows ?? "", /ELECTRON_RUN_AS_NODE/);
+
+  const copilot = await installCopilotHooks({
+    homeDir, runnerPath: RUNNER_PATH, nodePath: process.execPath,
+    platform: "win32", electronAsNode: true,
+  });
+  const copilotConfig = await readJson(copilot.configPath);
+  const copilotHooks = copilotConfig.hooks as Record<string, Array<{ powershell: string }>>;
+  assert.match(copilotHooks.sessionStart?.[0]?.powershell ?? "", /ELECTRON_RUN_AS_NODE/);
+});
+
+test("Copilot monitoring leaves third-party permission hooks untouched", async (context) => {
   const homeDir = await temporaryHome(context);
   const hooksDirectory = join(homeDir, ".copilot", "hooks");
   const userConfigPath = join(hooksDirectory, "security.json");
@@ -101,11 +141,11 @@ test("Copilot permission installation is blocked by an existing user hook", asyn
     nodePath: process.execPath,
   });
   assert.equal(result.permissionInstalled, false);
-  assert.match(result.warnings[0] ?? "", /security\.json/);
+  assert.deepEqual(result.warnings, []);
 
   const installed = await readJson(result.configPath);
   const hooks = installed.hooks as Record<string, unknown[]>;
-  assert.deepEqual(hooks.permissionRequest, []);
+  assert.equal(hooks.permissionRequest, undefined);
   assert.equal(hooks.sessionStart?.length, 1);
   assert.equal(await readFile(userConfigPath, "utf8"), JSON.stringify({
     version: 1,

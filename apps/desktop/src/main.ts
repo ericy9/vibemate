@@ -1,9 +1,12 @@
+import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { hostname } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   app,
   BrowserWindow,
+  dialog,
   ipcMain,
   Menu,
   nativeImage,
@@ -11,8 +14,12 @@ import {
   Tray,
   type Rectangle,
 } from "electron";
-import { parsePermissionDecision } from "@vibemate/protocol";
-import { VibeMateReceiver } from "@vibemate/receiver";
+import { installCodexHooks, installCopilotHooks } from "@vibemate/hook-installer";
+import { discoverSshHosts, discoverWsl } from "./environment-discovery.js";
+import { EnvironmentStore } from "./environment-store.js";
+import type { DesktopConfiguration, EnvironmentConfig } from "./environment-types.js";
+import { ManagedEnvironmentLauncher } from "./managed-environment-launcher.js";
+import { ReceiverConnectionManager } from "./receiver-connection-manager.js";
 
 const sourceDirectory = fileURLToPath(new URL(".", import.meta.url));
 const rendererDirectory = join(sourceDirectory, "../src/renderer");
@@ -20,30 +27,55 @@ const preloadPath = join(sourceDirectory, "../src/preload.cjs");
 const PET_WIDTH = 320;
 const PET_HEIGHT = 340;
 const PET_MARGIN = 20;
+const PREVIEW_MARGIN = 12;
+const PREVIEW_PEEK = 8;
+const DOCK_THRESHOLD = 16;
+const PREVIEW_DEFAULT_SIZE = { width: 220, height: 52 };
 
-const receiver = new VibeMateReceiver({
-  onError: (error) => {
-    console.error("Receiver error:", error.message);
-  },
-});
+function hookRunnerPath(): string {
+  return app.isPackaged
+    ? join(process.resourcesPath, "app", "hook-runner", "cli.js")
+    : fileURLToPath(new URL("../../../packages/hook-runner/dist/cli.js", import.meta.url));
+}
+
+async function installWindowsHooks(): Promise<void> {
+  const options = {
+    runnerPath: hookRunnerPath(), nodePath: process.execPath, platform: process.platform,
+    electronAsNode: app.isPackaged,
+  };
+  const results = await Promise.allSettled([installCodexHooks(options), installCopilotHooks(options)]);
+  if (results.every((result) => result.status === "rejected")) {
+    const first = results[0];
+    throw first?.status === "rejected" ? first.reason : new Error("Agent Hook 安装失败");
+  }
+  for (const result of results) {
+    if (result.status === "rejected") console.error("Optional Agent hook install failed:", result.reason);
+  }
+}
+
+let configuration: DesktopConfiguration;
+let environmentStore: EnvironmentStore;
+let receiverManager: ReceiverConnectionManager;
 
 let controlWindow: BrowserWindow | undefined;
 let petWindow: BrowserWindow | undefined;
+let previewWindow: BrowserWindow | undefined;
 let tray: Tray | undefined;
 let snapshotScheduled = false;
 let positionSaveTimer: NodeJS.Timeout | undefined;
 let quitting = false;
 
 function getSnapshot() {
-  return {
-    sessions: receiver.sessions.list(),
-    pendingPermissions: receiver.permissions.listPending(),
+  return receiverManager?.getSnapshot() ?? {
+    devices: [], environments: [], sessions: [], pendingPermissions: [],
+    preferences: { showPet: true, showPreview: true, focus: { kind: "all" as const } },
+    onboardingCompleted: false,
   };
 }
 
 function publishSnapshot(): void {
   const snapshot = getSnapshot();
-  for (const window of [controlWindow, petWindow]) {
+  for (const window of [controlWindow, petWindow, previewWindow]) {
     if (window && !window.isDestroyed()) {
       window.webContents.send("vibemate:snapshot", snapshot);
     }
@@ -64,10 +96,11 @@ function scheduleSnapshot(): void {
 function createControlWindow(): BrowserWindow {
   const window = new BrowserWindow({
     width: 460,
-    height: 680,
+    height: 600,
     minWidth: 380,
-    minHeight: 560,
-    title: "VibeMate",
+    minHeight: 480,
+    show: !configuration?.onboardingCompleted,
+    title: "VibeMate 设置",
     backgroundColor: "#111827",
     webPreferences: {
       preload: preloadPath,
@@ -92,8 +125,11 @@ function createControlWindow(): BrowserWindow {
   return window;
 }
 
-function petPositionPath(): string {
-  return join(app.getPath("userData"), "pet-position.json");
+type Dock = "left" | "right" | undefined;
+interface StoredPosition { x: number; y: number; dock?: Dock }
+
+function positionPath(name: string): string {
+  return join(app.getPath("userData"), `${name}-position.json`);
 }
 
 function defaultPetBounds(): Rectangle {
@@ -106,18 +142,18 @@ function defaultPetBounds(): Rectangle {
   };
 }
 
-function isVisiblePosition(x: number, y: number): boolean {
+function isVisiblePosition(x: number, y: number, width: number, height: number): boolean {
   return screen.getAllDisplays().some(({ workArea }) => (
-    x + PET_WIDTH > workArea.x
+    x + width > workArea.x
     && x < workArea.x + workArea.width
-    && y + PET_HEIGHT > workArea.y
+    && y + height > workArea.y
     && y < workArea.y + workArea.height
   ));
 }
 
-async function loadPetBounds(): Promise<Rectangle> {
+async function loadPosition(name: string, width: number, height: number): Promise<StoredPosition | undefined> {
   try {
-    const value: unknown = JSON.parse(await readFile(petPositionPath(), "utf8"));
+    const value: unknown = JSON.parse(await readFile(positionPath(name), "utf8"));
     if (
       value
       && typeof value === "object"
@@ -127,17 +163,31 @@ async function loadPetBounds(): Promise<Rectangle> {
       && Number.isInteger(value.x)
       && typeof value.y === "number"
       && Number.isInteger(value.y)
-      && isVisiblePosition(value.x, value.y)
+      && isVisiblePosition(value.x, value.y, width, height)
     ) {
-      return { x: value.x, y: value.y, width: PET_WIDTH, height: PET_HEIGHT };
+      const dock = "dock" in value && (value.dock === "left" || value.dock === "right") ? value.dock : undefined;
+      return { x: value.x, y: value.y, dock };
     }
   } catch (error) {
     if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
       const message = error instanceof Error ? error.message : "unknown position read error";
-      console.error(`Could not restore pet position: ${message}`);
+      console.error(`Could not restore ${name} position: ${message}`);
     }
   }
-  return defaultPetBounds();
+  return undefined;
+}
+
+async function savePosition(name: string, position: StoredPosition): Promise<void> {
+  const path = positionPath(name);
+  const temporaryPath = `${path}.${process.pid}.tmp`;
+  await mkdir(app.getPath("userData"), { recursive: true });
+  await writeFile(temporaryPath, `${JSON.stringify(position)}\n`, "utf8");
+  await rename(temporaryPath, path);
+}
+
+async function loadPetBounds(): Promise<Rectangle> {
+  const stored = await loadPosition("pet", PET_WIDTH, PET_HEIGHT);
+  return stored ? { x: stored.x, y: stored.y, width: PET_WIDTH, height: PET_HEIGHT } : defaultPetBounds();
 }
 
 async function savePetPosition(): Promise<void> {
@@ -145,11 +195,7 @@ async function savePetPosition(): Promise<void> {
     return;
   }
   const { x, y } = petWindow.getBounds();
-  const path = petPositionPath();
-  const temporaryPath = `${path}.${process.pid}.tmp`;
-  await mkdir(app.getPath("userData"), { recursive: true });
-  await writeFile(temporaryPath, `${JSON.stringify({ x, y })}\n`, "utf8");
-  await rename(temporaryPath, path);
+  await savePosition("pet", { x, y });
 }
 
 function schedulePositionSave(): void {
@@ -169,6 +215,7 @@ async function createPetWindow(): Promise<BrowserWindow> {
   const window = new BrowserWindow({
     ...(await loadPetBounds()),
     transparent: true,
+    show: configuration?.preferences.showPet ?? true,
     backgroundColor: "#00000000",
     type: "toolbar",
     frame: false,
@@ -199,6 +246,114 @@ async function createPetWindow(): Promise<BrowserWindow> {
   return window;
 }
 
+interface PreviewState { mode: "dot" | "capsule" | "expanded"; width: number; height: number; hovered: boolean }
+
+let previewState: PreviewState = { mode: "capsule", ...PREVIEW_DEFAULT_SIZE, hovered: false };
+let previewPosition: StoredPosition = { x: 0, y: 0 };
+let previewDragOrigin: { x: number; y: number } | undefined;
+let previewSaveTimer: NodeJS.Timeout | undefined;
+
+function defaultPreviewPosition(): StoredPosition {
+  const { workArea } = screen.getPrimaryDisplay();
+  const pet = petWindow?.getBounds() ?? defaultPetBounds();
+  return {
+    x: pet.x - PREVIEW_DEFAULT_SIZE.width - PREVIEW_MARGIN,
+    y: workArea.y + workArea.height - PREVIEW_DEFAULT_SIZE.height - PREVIEW_MARGIN,
+  };
+}
+
+// Computes where the window should sit for the current mode, dock and hover state.
+function previewBounds(): Rectangle {
+  const { width, height, mode, hovered } = previewState;
+  const area = screen.getDisplayMatching({ ...previewPosition, width, height }).workArea;
+  const revealed = hovered || mode === "expanded";
+  let x = previewPosition.x;
+  if (previewPosition.dock === "left") {
+    x = revealed ? area.x : area.x - width + PREVIEW_PEEK;
+  } else if (previewPosition.dock === "right") {
+    x = revealed ? area.x + area.width - width : area.x + area.width - PREVIEW_PEEK;
+  } else {
+    x = Math.max(area.x, Math.min(x, area.x + area.width - width));
+  }
+  const y = Math.max(area.y, Math.min(previewPosition.y, area.y + area.height - height));
+  return { x, y, width, height };
+}
+
+function applyPreviewBounds(): void {
+  if (!previewWindow || previewWindow.isDestroyed() || previewDragOrigin) return;
+  previewWindow.setBounds(previewBounds());
+}
+
+function schedulePreviewSave(): void {
+  if (previewSaveTimer) clearTimeout(previewSaveTimer);
+  previewSaveTimer = setTimeout(() => {
+    previewSaveTimer = undefined;
+    void savePosition("preview", previewPosition).catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : "unknown position save error";
+      console.error(`Could not save preview position: ${message}`);
+    });
+  }, 250);
+}
+
+async function createPreviewWindow(): Promise<BrowserWindow> {
+  previewPosition = (await loadPosition("preview", PREVIEW_DEFAULT_SIZE.width, PREVIEW_DEFAULT_SIZE.height))
+    ?? defaultPreviewPosition();
+  const window = new BrowserWindow({
+    ...previewBounds(),
+    transparent: true,
+    show: configuration?.preferences.showPreview ?? true,
+    backgroundColor: "#00000000",
+    type: "toolbar",
+    frame: false,
+    focusable: true,
+    resizable: false,
+    hasShadow: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    title: "VibeMate 悬浮监控",
+    webPreferences: { preload: preloadPath, contextIsolation: true, nodeIntegration: false, sandbox: true },
+  });
+  window.setHasShadow(false);
+  window.setAlwaysOnTop(true, "floating");
+  window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  void window.loadFile(join(rendererDirectory, "preview.html"));
+  window.webContents.once("did-finish-load", publishSnapshot);
+  window.on("closed", () => { if (previewWindow === window) previewWindow = undefined; });
+  return window;
+}
+
+function handlePreviewDrag(phase: "start" | "move" | "end", dx: number, dy: number): void {
+  if (!previewWindow || previewWindow.isDestroyed()) return;
+  if (phase === "start") {
+    const { x, y } = previewWindow.getBounds();
+    previewDragOrigin = { x, y };
+    return;
+  }
+  if (!previewDragOrigin) return;
+  if (phase === "move") {
+    previewWindow.setPosition(Math.round(previewDragOrigin.x + dx), Math.round(previewDragOrigin.y + dy));
+    return;
+  }
+  previewDragOrigin = undefined;
+  const bounds = previewWindow.getBounds();
+  const area = screen.getDisplayMatching(bounds).workArea;
+  let dock: Dock;
+  if (bounds.x <= area.x + DOCK_THRESHOLD) dock = "left";
+  else if (bounds.x + bounds.width >= area.x + area.width - DOCK_THRESHOLD) dock = "right";
+  previewPosition = { x: bounds.x, y: bounds.y, dock };
+  applyPreviewBounds();
+  schedulePreviewSave();
+}
+
+function togglePreviewWindow(): void {
+  if (!previewWindow) return;
+  if (previewWindow.isVisible()) previewWindow.hide();
+  else previewWindow.showInactive();
+  configuration.preferences.showPreview = previewWindow.isVisible();
+  void environmentStore.save(configuration).catch((error: unknown) => console.error("Could not save preview preference:", error));
+  updateTrayMenu();
+}
+
 function showControlWindow(): void {
   if (!controlWindow) {
     controlWindow = createControlWindow();
@@ -216,6 +371,8 @@ function togglePetWindow(): void {
   } else {
     petWindow.showInactive();
   }
+  configuration.preferences.showPet = petWindow.isVisible();
+  void environmentStore.save(configuration).catch((error: unknown) => console.error("Could not save pet preference:", error));
   updateTrayMenu();
 }
 
@@ -243,8 +400,12 @@ function updateTrayMenu(): void {
       click: togglePetWindow,
     },
     {
-      label: "打开控制面板",
+      label: "设置…",
       click: showControlWindow,
+    },
+    {
+      label: previewWindow?.isVisible() ? "隐藏悬浮监控窗" : "显示悬浮监控窗",
+      click: togglePreviewWindow,
     },
     { type: "separator" },
     {
@@ -264,6 +425,46 @@ function createTray(): Tray {
 }
 
 ipcMain.handle("vibemate:get-snapshot", () => getSnapshot());
+ipcMain.on("vibemate:hide-preview", (event) => {
+  if (event.sender !== previewWindow?.webContents) return;
+  if (previewWindow.isVisible()) togglePreviewWindow();
+});
+ipcMain.on("vibemate:preview-state", (event, state: unknown) => {
+  if (event.sender !== previewWindow?.webContents || !state || typeof state !== "object") return;
+  const { mode, width, height, hovered } = state as Record<string, unknown>;
+  if ((mode !== "dot" && mode !== "capsule" && mode !== "expanded")
+    || typeof width !== "number" || typeof height !== "number" || typeof hovered !== "boolean"
+    || !Number.isFinite(width) || !Number.isFinite(height)) return;
+  previewState = {
+    mode,
+    width: Math.max(24, Math.min(600, Math.ceil(width))),
+    height: Math.max(24, Math.min(800, Math.ceil(height))),
+    hovered,
+  };
+  applyPreviewBounds();
+});
+ipcMain.on("vibemate:preview-drag", (event, phase: unknown, dx: unknown, dy: unknown) => {
+  if (event.sender !== previewWindow?.webContents) return;
+  if ((phase !== "start" && phase !== "move" && phase !== "end")
+    || typeof dx !== "number" || typeof dy !== "number" || !Number.isFinite(dx) || !Number.isFinite(dy)) return;
+  handlePreviewDrag(phase, dx, dy);
+});
+ipcMain.handle("vibemate:set-codex-approvals", async (_event, environmentId: unknown, enabled: unknown) => {
+  if (typeof environmentId !== "string" || typeof enabled !== "boolean") throw new TypeError("invalid approval setting");
+  const environment = configuration.environments.find(item => item.environmentId === environmentId);
+  if (!environment) throw new Error("environment not found");
+  await receiverManager.setCodexApprovals(environmentId, enabled);
+  const previous = environment.codexApprovalsEnabled === true;
+  environment.codexApprovalsEnabled = enabled;
+  try { await environmentStore.save(configuration); }
+  catch (error) {
+    environment.codexApprovalsEnabled = previous;
+    await receiverManager.setCodexApprovals(environmentId, previous);
+    throw error;
+  }
+  receiverManager.setConfiguration(configuration);
+  return getSnapshot();
+});
 ipcMain.on("vibemate:show-control", showControlWindow);
 ipcMain.on("vibemate:quit", () => app.quit());
 ipcMain.handle(
@@ -272,10 +473,12 @@ ipcMain.handle(
     if (
       !identity
       || typeof identity !== "object"
+      || !("environmentId" in identity)
       || !("requestId" in identity)
       || !("sourceProfile" in identity)
       || !("agent" in identity)
       || !("sessionId" in identity)
+      || typeof identity.environmentId !== "string"
       || typeof identity.requestId !== "string"
       || typeof identity.sourceProfile !== "string"
       || (identity.agent !== "codex" && identity.agent !== "copilot")
@@ -284,37 +487,141 @@ ipcMain.handle(
     ) {
       throw new TypeError("invalid permission decision");
     }
-    const request = receiver.permissions.listPending()
-      .find((pending) => (
-        pending.requestId === identity.requestId
-        && pending.sourceProfile === identity.sourceProfile
-        && pending.agent === identity.agent
-        && pending.sessionId === identity.sessionId
-      ));
-    if (!request) {
-      return "not_found";
-    }
-    return receiver.permissions.submitDecision(parsePermissionDecision({
-      protocolVersion: 1,
-      requestId: request.requestId,
-      sourceProfile: request.sourceProfile,
-      agent: request.agent,
-      sessionId: request.sessionId,
-      decision,
-      decidedAt: new Date().toISOString(),
-    }));
+    return receiverManager.submitDecision({
+      environmentId: identity.environmentId,
+      requestId: identity.requestId,
+      sourceProfile: identity.sourceProfile,
+      agent: identity.agent,
+      sessionId: identity.sessionId,
+    }, decision);
   },
 );
 
-receiver.sessions.subscribe(scheduleSnapshot);
-receiver.permissions.subscribe(scheduleSnapshot);
+ipcMain.handle("vibemate:scan-environments", async () => {
+  const localDevice = configuration.devices.find((device) => device.kind === "local");
+  if (!localDevice) throw new Error("local device is missing");
+  const [wsl, sshHosts] = await Promise.all([discoverWsl(), discoverSshHosts()]);
+  const discovered: EnvironmentConfig[] = [
+    ...wsl.map((distribution): EnvironmentConfig => ({
+      environmentId: randomUUID(), deviceId: localDevice.deviceId,
+      name: `WSL · ${distribution.name}`, kind: "wsl", enabled: false,
+      distribution: distribution.name,
+    })),
+    ...sshHosts.map((sshHost): EnvironmentConfig => {
+      let device = configuration.devices.find((item) => item.kind === "remote" && item.name === sshHost);
+      if (!device) {
+        device = { deviceId: randomUUID(), name: sshHost, kind: "remote" };
+        configuration.devices.push(device);
+      }
+      return { environmentId: randomUUID(), deviceId: device.deviceId, name: sshHost, kind: "ssh", enabled: false, sshHost };
+    }),
+  ];
+  configuration.environments = EnvironmentStore.mergeDiscovered(configuration.environments, discovered);
+  receiverManager.setConfiguration(configuration);
+  await environmentStore.save(configuration);
+  return getSnapshot();
+});
+
+ipcMain.handle("vibemate:set-environment-enabled", async (_event, environmentId: unknown, enabled: unknown) => {
+  if (typeof environmentId !== "string" || typeof enabled !== "boolean") throw new TypeError("invalid environment setting");
+  const environment = configuration.environments.find((item) => item.environmentId === environmentId);
+  if (!environment) throw new Error("environment not found");
+  if (enabled && environment.kind === "windows") {
+    await installWindowsHooks();
+    await receiverManager.start(environmentId, true);
+  }
+  if (!enabled) await receiverManager.stop(environmentId);
+  environment.enabled = enabled;
+  configuration.onboardingCompleted = true;
+  await environmentStore.save(configuration);
+  receiverManager.setConfiguration(configuration);
+  return getSnapshot();
+});
+
+ipcMain.handle("vibemate:start-environment", async (_event, environmentId: unknown) => {
+  if (typeof environmentId !== "string") throw new TypeError("invalid environment id");
+  await receiverManager.start(environmentId, true);
+  const environment = configuration.environments.find((item) => item.environmentId === environmentId);
+  if (environment) {
+    environment.enabled = true;
+    configuration.onboardingCompleted = true;
+    await environmentStore.save(configuration);
+    receiverManager.setConfiguration(configuration);
+  }
+  return getSnapshot();
+});
+
+ipcMain.handle("vibemate:stop-environment", async (_event, environmentId: unknown) => {
+  if (typeof environmentId !== "string") throw new TypeError("invalid environment id");
+  await receiverManager.stop(environmentId);
+  const environment = configuration.environments.find((item) => item.environmentId === environmentId);
+  if (environment?.kind !== "ssh" && environment) {
+    environment.enabled = false;
+    await environmentStore.save(configuration);
+    receiverManager.setConfiguration(configuration);
+  }
+  return getSnapshot();
+});
+
+ipcMain.handle("vibemate:add-ssh-environment", async (_event, value: unknown) => {
+  if (typeof value !== "string" || !/^[a-zA-Z0-9._-]{1,255}$/.test(value)) {
+    throw new TypeError("请输入 ~/.ssh/config 中的主机别名");
+  }
+  let device = configuration.devices.find((item) => item.kind === "remote" && item.name === value);
+  if (!device) {
+    device = { deviceId: randomUUID(), name: value, kind: "remote" };
+    configuration.devices.push(device);
+  }
+  if (!configuration.environments.some((item) => item.kind === "ssh" && item.sshHost.toLowerCase() === value.toLowerCase())) {
+    configuration.environments.push({ environmentId: randomUUID(), deviceId: device.deviceId, name: value, kind: "ssh", enabled: false, sshHost: value });
+  }
+  await environmentStore.save(configuration);
+  receiverManager.setConfiguration(configuration);
+  return getSnapshot();
+});
+
+ipcMain.handle("vibemate:set-focus", async (_event, focus: unknown) => {
+  if (!focus || typeof focus !== "object" || !("kind" in focus)
+    || !["all", "device", "environment", "project", "session"].includes(String(focus.kind))
+    || (focus.kind !== "all" && (!("id" in focus) || typeof focus.id !== "string"))) {
+    throw new TypeError("invalid pet focus");
+  }
+  const focusValue = focus as { kind: "all" | "device" | "environment" | "project" | "session"; id?: string };
+  configuration.preferences.focus = focusValue.kind === "all"
+    ? { kind: "all" }
+    : { kind: focusValue.kind, id: focusValue.id as string };
+  await environmentStore.save(configuration);
+  receiverManager.setConfiguration(configuration);
+  return getSnapshot();
+});
 
 async function startDesktop(): Promise<void> {
   await app.whenReady();
   try {
-    await receiver.start();
+    environmentStore = new EnvironmentStore(join(app.getPath("userData"), "environments.json"), hostname());
+    configuration = await environmentStore.load();
+    const payloadRoot = app.isPackaged
+      ? join(process.resourcesPath, "linux-payload")
+      : fileURLToPath(new URL("../../../build/linux-payload", import.meta.url));
+    receiverManager = new ReceiverConnectionManager(configuration, new ManagedEnvironmentLauncher(payloadRoot), (error) => {
+      console.error("Environment Receiver error:", error.message);
+    });
+    receiverManager.subscribe(scheduleSnapshot);
+    const local = configuration.environments.find((environment) => environment.kind === "windows" && environment.enabled);
+    if (local) {
+      await installWindowsHooks();
+      await receiverManager.start(local.environmentId);
+    }
+    if (process.platform === "win32") {
+      const runningWsl = new Set((await discoverWsl()).filter((item) => item.running).map((item) => item.name.toLowerCase()));
+      const enabledRunning = configuration.environments.filter((environment) => (
+        environment.kind === "wsl" && environment.enabled && runningWsl.has(environment.distribution.toLowerCase())
+      ));
+      await Promise.allSettled(enabledRunning.map((environment) => receiverManager.start(environment.environmentId)));
+    }
     controlWindow = createControlWindow();
     petWindow = await createPetWindow();
+    previewWindow = await createPreviewWindow();
     createTray();
   } catch (error) {
     const message = error instanceof Error ? error.message : "unknown startup error";
@@ -342,6 +649,24 @@ app.on("before-quit", (event) => {
     positionSaveTimer = undefined;
   }
   void (async () => {
+    const pendingCount = getSnapshot().pendingPermissions.length;
+    if (pendingCount > 0) {
+      const answer = await dialog.showMessageBox({
+        type: "warning",
+        title: "仍有待审批操作",
+        message: `还有 ${pendingCount} 个权限请求等待处理，确定退出 VibeMate 吗？`,
+        detail: "退出后这些远程审批将不再由桌面端处理。",
+        buttons: ["继续使用", "退出"],
+        defaultId: 0,
+        cancelId: 0,
+      });
+      if (answer.response === 0) {
+        stopping = false;
+        quitting = false;
+        showControlWindow();
+        return;
+      }
+    }
     try {
       await savePetPosition();
     } catch (error) {
@@ -349,7 +674,7 @@ app.on("before-quit", (event) => {
       console.error(`Could not save pet position during shutdown: ${message}`);
     }
     try {
-      await receiver.stop();
+      await receiverManager?.stopAll(3_000);
     } catch (error) {
       const message = error instanceof Error ? error.message : "unknown shutdown error";
       console.error(`VibeMate desktop shutdown failed: ${message}`);

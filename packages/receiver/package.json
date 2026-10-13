@@ -16,6 +16,10 @@
     "@vibemate/adapter-common": "*",
     "@vibemate/adapter-copilot": "*",
     "@vibemate/core": "*",
-    "@vibemate/protocol": "*"
+    "@vibemate/protocol": "*",
+    "ws": "^8.21.3"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.1"
   }
 }

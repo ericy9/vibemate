@@ -9,9 +9,16 @@ GitHub Copilot CLI 会话，在任务需要用户注意时发出提醒，并允�
 
 ## 当前状态
 
-目前处于本机 Agent 集成和桌面端骨架阶段。仓库已包含 Protocol v1、会话存储、
-权限 Broker、Codex/Copilot 事件映射、loopback HTTP 接收服务、Hook runner、
-增量安装器，以及由实时状态驱动的 Electron 控制面板、托盘和七状态悬浮占位桌宠。
+仓库已包含 Protocol v1、会话存储、权限 Broker、Codex/Copilot 事件映射、
+loopback HTTP 接收服务、Hook runner、增量安装器，以及由实时状态驱动的
+Electron 设置页、托盘、胶囊式悬浮监控窗和七状态悬浮桌宠。桌面端可以同时管理
+Windows 本机、多个 WSL 发行版，以及通过系统 SSH 接入的 Linux/树莓派环境。
+
+默认仅监控，沿用 Agent 原生授权设置。每个环境可单独开启“在 VibeMate 中审批
+Codex”；关闭或客户端离线会回退原生审批。Copilot 仅采集任务状态及实际
+`permission_prompt` 提醒，不接管审批，不干扰其 Allow All／会话授权规则。
+重新启用环境时安装器会移除 VibeMate 旧的 Copilot 权限 Hook 并注册通知 Hook，
+保留其他工具的配置。已运行的 Agent 可能需要重启会话才能加载新的 Hook 配置。
 
 ## 项目文档
 
@@ -27,8 +34,18 @@ GitHub Copilot CLI 会话，在任务需要用户注意时发出提醒，并允�
 - 支持原生回退的阻塞式 Allow/Deny 权限流程
 - 轻量的多会话身份模型
 
-远程 Linux、WSL2、树莓派、桌面宠物、系统通知和个人生活提醒，将在编码端
-采集层得到验证后分阶段实现。
+系统通知、自动更新、完整卸载清理和个人生活提醒仍属于后续工作。
+
+## 开发与打包
+
+```bash
+npm test
+npm run start:desktop
+npm run dist:windows
+```
+
+正式用户路径不需要终端：启动后扫描 Windows/WSL，确认要启用的环境即可。独立
+Linux 主机从面板选择已有 SSH 别名或填写主机/IP，再手动点击“开始监控”。
 
 ## 本地请求 Seedance
 

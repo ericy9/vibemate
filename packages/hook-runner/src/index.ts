@@ -181,6 +181,10 @@ export async function readHookInput(
 }
 
 export async function runHook(options: RunHookOptions): Promise<HookRunResult> {
+  // Old installed permission hooks must fall through even before runtime discovery.
+  if (options.agent === "copilot" && options.eventName === "permissionRequest") {
+    return { stdout: "", delivered: false, permission: true };
+  }
   const input = parseInput(options.input);
   const permission = permissionEvent(options.agent, options.eventName, input);
   const runtimePath = options.runtimeFilePath

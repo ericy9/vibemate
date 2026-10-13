@@ -18,6 +18,11 @@ body {
   user-select: none;
 }
 
+.outside-badge {
+  position: absolute; right: 24px; bottom: 26px; min-width: 24px; padding: 3px 7px;
+  border-radius: 999px; color: white; background: #dc2626; font: 700 12px/18px system-ui, sans-serif;
+}
+
 .pet-window .pet-panel {
   min-height: 0;
 }

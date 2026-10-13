@@ -171,6 +171,15 @@ main {
   color: #94a3b8;
 }
 
+.settings-heading h1 { font-size: 20px; margin-bottom: 4px; }
+.settings-heading p { margin: 0; }
+
+.connection-detail {
+  overflow-wrap: anywhere;
+  color: #94a3b8;
+  font-size: 13px;
+}
+
 .card {
   padding: 15px;
   border: 1px solid rgb(148 163 184 / 16%);
@@ -264,6 +273,22 @@ button {
   cursor: pointer;
   font-weight: 700;
 }
+
+button.compact {
+  width: auto;
+  min-width: 72px;
+  padding: 7px 10px;
+  font-size: 12px;
+}
+
+select {
+  width: 100%; padding: 9px 10px; border: 1px solid #334155; border-radius: 10px;
+  color: #e5e7eb; background: #0f172a;
+}
+
+.environment-row > div { min-width: 0; }
+.environment-row span { overflow-wrap: anywhere; }
+.heading-actions { display: flex; gap: 6px; }
 
 button:disabled {
   cursor: wait;

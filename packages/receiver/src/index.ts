@@ -9,6 +9,10 @@ import { PermissionBroker, SessionStore } from "@vibemate/core";
 import { PROTOCOL_VERSION } from "@vibemate/protocol";
 import { ReceiverRouter } from "./router.js";
 import {
+  ReceiverLanServer,
+  type LanServerAddress,
+} from "./lan-server.js";
+import {
   acquireRuntimeLock,
   releaseRuntimeLock,
   removeOwnedRuntimeConfig,
@@ -25,10 +29,18 @@ export interface ReceiverAddress {
 }
 
 export interface ReceiverOptions {
+  codexApprovalsEnabled?: boolean;
   sourceProfile?: string;
   runtimeFilePath?: string;
   adapterRuntime?: Omit<AdapterRuntimeOptions, "sourceProfile">;
   onError?: (error: Error) => void;
+  lan?: {
+    host: string;
+    port?: number;
+    authToken: string;
+    heartbeatIntervalMs?: number;
+    heartbeatTimeoutMs?: number;
+  };
 }
 
 export class VibeMateReceiver {
@@ -43,6 +55,9 @@ export class VibeMateReceiver {
   private address: ReceiverAddress | undefined;
   private runtimeLock: RuntimeLock | undefined;
   private authToken: string | undefined;
+  private readonly lanOptions: ReceiverOptions["lan"];
+  private lanServer: ReceiverLanServer | undefined;
+  private lanAddress: LanServerAddress | undefined;
 
   constructor(options: ReceiverOptions = {}) {
     this.sessions = new SessionStore();
@@ -58,6 +73,9 @@ export class VibeMateReceiver {
     this.runtimeFilePath = options.runtimeFilePath
       ?? join(homedir(), ".vibemate", "runtime.json");
     this.onError = options.onError ?? ((error) => console.error(error.message));
+    this.lanOptions = options.lan;
+    // Standalone HTTP observers retain their existing decision workflow.
+    this.permissions.setControllerAvailable(!this.lanOptions && options.codexApprovalsEnabled === true);
     this.router = new ReceiverRouter({
       sessions: this.sessions,
       permissions: this.permissions,
@@ -121,8 +139,23 @@ export class VibeMateReceiver {
     };
     try {
       await writeRuntimeConfig(this.runtimeFilePath, runtime);
+      if (this.lanOptions) {
+        const lanServer = new ReceiverLanServer({
+          ...this.lanOptions,
+          sessions: this.sessions,
+          permissions: this.permissions,
+          onError: this.onError,
+        });
+        this.lanServer = lanServer;
+        this.lanAddress = await lanServer.start();
+      }
     } catch (error) {
+      await this.closeLanServer();
       await this.closeServer();
+      await removeOwnedRuntimeConfig(this.runtimeFilePath, {
+        pid: process.pid,
+        port: this.address?.port ?? runtime.port,
+      });
       this.authToken = undefined;
       this.runtimeLock = undefined;
       await releaseRuntimeLock(runtimeLock);
@@ -136,6 +169,7 @@ export class VibeMateReceiver {
     const address = this.address;
     const runtimeLock = this.runtimeLock;
     try {
+      await this.closeLanServer();
       await this.closeServer();
       if (address) {
         await removeOwnedRuntimeConfig(this.runtimeFilePath, {
@@ -150,6 +184,10 @@ export class VibeMateReceiver {
         await releaseRuntimeLock(runtimeLock);
       }
     }
+  }
+
+  getLanAddress(): LanServerAddress | undefined {
+    return this.lanAddress ? { ...this.lanAddress } : undefined;
   }
 
   private async closeServer(): Promise<void> {
@@ -172,6 +210,16 @@ export class VibeMateReceiver {
       });
     });
   }
+
+  private async closeLanServer(): Promise<void> {
+    const lanServer = this.lanServer;
+    this.lanServer = undefined;
+    this.lanAddress = undefined;
+    if (lanServer) {
+      await lanServer.stop();
+    }
+  }
 }
 
 export * from "./runtime-config.js";
+export * from "./lan-server.js";

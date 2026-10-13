@@ -1,0 +1,32 @@
+appId: com.dfrobot.vibemate
+productName: VibeMate
+extraMetadata:
+  main: apps/desktop/dist/main.js
+artifactName: VibeMate-${version}-${arch}-setup.${ext}
+directories:
+  output: release
+files:
+  - apps/desktop/dist/**
+  - apps/desktop/src/preload.cjs
+  - apps/desktop/src/renderer/**
+  - packages/*/dist/**
+  - packages/*/package.json
+  - package.json
+  - node_modules/**
+extraResources:
+  - from: packages/hook-runner/dist
+    to: app/hook-runner
+  - from: packages/hook-runner/package.json
+    to: app/hook-runner/package.json
+  - from: build/linux-payload
+    to: linux-payload
+win:
+  target:
+    - target: nsis
+      arch: [x64, arm64]
+  signAndEditExecutable: false
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true

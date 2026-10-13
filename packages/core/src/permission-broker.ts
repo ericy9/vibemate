@@ -7,6 +7,7 @@ import {
 export type NoDecisionReason =
   | "timeout"
   | "shutdown"
+  | "controller_offline"
   | "request_aborted"
   | "broker_capacity";
 
@@ -59,6 +60,7 @@ export class PermissionBroker {
   private readonly maxFinalizedRequests: number;
   private readonly maxPendingRequests: number;
   private closed = false;
+  private controllerAvailable = true;
 
   constructor(options: PermissionBrokerOptions = {}) {
     this.now = options.now ?? (() => new Date());
@@ -74,6 +76,9 @@ export class PermissionBroker {
 
     if (this.closed) {
       return this.immediateNoDecision(key, request.requestId, "shutdown");
+    }
+    if (!this.controllerAvailable) {
+      return this.immediateNoDecision(key, request.requestId, "controller_offline");
     }
 
     if (Date.parse(request.expiresAt) <= this.now().getTime()) {
@@ -151,6 +156,20 @@ export class PermissionBroker {
       this.finalizeNoDecision(permissionKey(entry.request), "shutdown");
     }
     return entries.length;
+  }
+
+  /** Release desktop approvals without shutting down event collection or the broker. */
+  setControllerAvailable(available: boolean): void {
+    this.controllerAvailable = available;
+    if (!available) {
+      for (const entry of [...this.pending.values()]) {
+        this.finalizeNoDecision(permissionKey(entry.request), "controller_offline");
+      }
+    }
+  }
+
+  isControllerAvailable(): boolean {
+    return this.controllerAvailable && !this.closed;
   }
 
   listPending(): PermissionRequest[] {

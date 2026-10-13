@@ -6,7 +6,6 @@ import {
   mkdir,
   open,
   readFile,
-  readdir,
   rename,
   rm,
   stat,
@@ -36,7 +35,7 @@ const COPILOT_EVENTS = [
   "subagentStart",
   "subagentStop",
   "preCompact",
-  "permissionRequest",
+  "notification",
 ] as const;
 
 type JsonObject = Record<string, unknown>;
@@ -48,6 +47,7 @@ export interface InstallOptions {
   runnerPath?: string;
   nodePath?: string;
   platform?: NodeJS.Platform;
+  electronAsNode?: boolean;
 }
 
 export interface InstallResult {
@@ -192,27 +192,31 @@ function codexCommand(
   nodePath: string,
   runnerPath: string,
   platform: NodeJS.Platform,
+  electronAsNode = false,
 ): { command: string; commandWindows?: string } {
+  const prefix = electronAsNode ? "ELECTRON_RUN_AS_NODE=1 " : "";
   const argumentsText = `${shellQuote(runnerPath)} codex --${MARKER}`;
   if (platform === "win32") {
-    const commandWindows = `& ${powershellQuote(nodePath)} ${powershellQuote(runnerPath)} codex --${MARKER}`;
+    const electronEnvironment = electronAsNode ? "$env:ELECTRON_RUN_AS_NODE = '1'; " : "";
+    const commandWindows = `${electronEnvironment}& ${powershellQuote(nodePath)} ${powershellQuote(runnerPath)} codex --${MARKER}`;
     return {
-      command: `${shellQuote(nodePath)} ${argumentsText}`,
+      command: `${prefix}${shellQuote(nodePath)} ${argumentsText}`,
       commandWindows,
     };
   }
-  return { command: `${shellQuote(nodePath)} ${argumentsText}` };
+  return { command: `${prefix}${shellQuote(nodePath)} ${argumentsText}` };
 }
 
 function copilotCommand(
   nodePath: string,
   runnerPath: string,
   event: string,
+  electronAsNode = false,
 ): { type: "command"; bash: string; powershell: string; timeoutSec: number } {
   return {
     type: "command",
-    bash: `${shellQuote(nodePath)} ${shellQuote(runnerPath)} copilot ${shellQuote(event)} --${MARKER}`,
-    powershell: `& ${powershellQuote(nodePath)} ${powershellQuote(runnerPath)} copilot ${powershellQuote(event)} --${MARKER}`,
+    bash: `${electronAsNode ? "ELECTRON_RUN_AS_NODE=1 " : ""}${shellQuote(nodePath)} ${shellQuote(runnerPath)} copilot ${shellQuote(event)} --${MARKER}`,
+    powershell: `${electronAsNode ? "$env:ELECTRON_RUN_AS_NODE = '1'; " : ""}& ${powershellQuote(nodePath)} ${powershellQuote(runnerPath)} copilot ${powershellQuote(event)} --${MARKER}`,
     timeoutSec: event === "permissionRequest" ? 600 : 5,
   };
 }
@@ -240,64 +244,21 @@ function countStatus(
   result[status]++;
 }
 
-async function fileDeclaresPermissionHook(path: string): Promise<boolean> {
-  try {
-    const parsed: unknown = JSON.parse(stripBom(await readFile(path, "utf8")));
-    if (!isObject(parsed) || !isObject(parsed.hooks)) {
-      return false;
-    }
-    return Array.isArray(parsed.hooks.permissionRequest)
-      && parsed.hooks.permissionRequest.length > 0;
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
-      return false;
-    }
-    return true;
-  }
-}
-
-async function findCopilotPermissionConflict(
-  copilotHome: string,
-  targetPath: string,
-  targetHooks: JsonObject,
-): Promise<string | undefined> {
-  const targetPermission = targetHooks.permissionRequest;
-  if (
-    Array.isArray(targetPermission)
-    && targetPermission.some((entry) => !commandContainsMarker(entry))
-  ) {
-    return targetPath;
-  }
-
-  const hooksDirectory = join(copilotHome, "hooks");
-  try {
-    const entries = await readdir(hooksDirectory, { withFileTypes: true });
-    for (const entry of entries) {
-      const path = join(hooksDirectory, entry.name);
-      if (
-        (entry.isFile() || entry.isSymbolicLink())
-        && entry.name.endsWith(".json")
-        && resolve(path) !== resolve(targetPath)
-        && await fileDeclaresPermissionHook(path)
-      ) {
-        return path;
+function removeLegacyCopilotPermissions(hooks: JsonObject, configPath: string): void {
+  // Upgrade only our entries in the dedicated file; preserve third-party policies.
+  for (const legacyEvent of ["permissionRequest", "PermissionRequest"]) {
+    const entries = hooks[legacyEvent];
+    if (entries === undefined) continue;
+    if (!Array.isArray(entries)) throw new Error(`${configPath}: hooks.${legacyEvent} must be an array`);
+    hooks[legacyEvent] = entries.flatMap(entry => {
+      if (commandContainsMarker(entry)) return [];
+      if (isObject(entry) && Array.isArray(entry.hooks) && codexGroupContainsMarker(entry)) {
+        const retained = entry.hooks.filter(hook => !commandContainsMarker(hook));
+        return retained.length ? [{ ...entry, hooks: retained }] : [];
       }
-    }
-  } catch (error) {
-    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
-      return hooksDirectory;
-    }
+      return [entry];
+    });
   }
-
-  const settingsPath = join(copilotHome, "settings.json");
-  try {
-    if (await fileDeclaresPermissionHook(settingsPath)) {
-      return settingsPath;
-    }
-  } catch {
-    return settingsPath;
-  }
-  return undefined;
 }
 
 export async function installCodexHooks(
@@ -324,6 +285,7 @@ export async function installCodexHooks(
     nodePath,
     runnerPath,
     options.platform ?? process.platform,
+    options.electronAsNode,
   );
 
   for (const event of CODEX_EVENTS) {
@@ -373,13 +335,13 @@ export async function installCopilotHooks(
     throw new Error(`${configPath}: unsupported hook config version`);
   }
   const hooks = ensureHooks(file.value, configPath);
-  const permissionConflict = await findCopilotPermissionConflict(home, configPath, hooks);
+  removeLegacyCopilotPermissions(hooks, configPath);
   const result: InstallResult = {
     configPath,
     added: 0,
     updated: 0,
     unchanged: 0,
-    permissionInstalled: !permissionConflict,
+    permissionInstalled: false,
     changed: false,
     warnings: [],
   };
@@ -389,16 +351,10 @@ export async function installCopilotHooks(
     if (existing !== undefined && !Array.isArray(existing)) {
       throw new Error(`${configPath}: hooks.${event} must be an array`);
     }
-    if (event === "permissionRequest" && permissionConflict) {
-      hooks[event] = (existing ?? []).filter((entry) => !commandContainsMarker(entry));
-      result.warnings.push(
-        `permissionRequest not installed because another hook exists in ${permissionConflict}`,
-      );
-      continue;
-    }
     const reconciled = reconcileEntry(
       existing ?? [],
-      copilotCommand(nodePath, runnerPath, event),
+      { ...copilotCommand(nodePath, runnerPath, event, options.electronAsNode),
+        ...(event === "notification" ? { matcher: "permission_prompt" } : {}) },
       commandContainsMarker,
     );
     hooks[event] = reconciled.entries;
@@ -482,7 +438,7 @@ export async function uninstallCopilotHooks(
     ?? join(options.homeDir ?? homedir(), ".copilot");
   return uninstallHooks(
     join(home, "hooks", "vibemate.json"),
-    COPILOT_EVENTS,
+    [...COPILOT_EVENTS, "permissionRequest", "PermissionRequest"],
     commandContainsMarker,
   );
 }

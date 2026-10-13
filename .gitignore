@@ -2,3 +2,5 @@ node_modules/
 apps/*/dist/
 packages/*/dist/
 *.tsbuildinfo
+build/linux-payload/
+release/
