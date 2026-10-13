@@ -303,6 +303,22 @@ button.deny {
   background: #be123c;
 }
 
+button { background: #2563eb; }
+button.secondary { background: #334155; }
+button.allow { background: #15803d; }
+.environment-actions { display: flex !important; flex-wrap: wrap; justify-content: flex-end; gap: 6px !important; }
+#settings-feedback:empty { display: none; }
+dialog { width: min(520px, calc(100vw - 24px)); max-height: calc(100vh - 28px); padding: 20px; border: 1px solid #475569; border-radius: 16px; color: #e5e7eb; background: #111827; }
+dialog::backdrop { background: rgb(2 6 23 / 75%); }
+dialog form > label, dialog form > div > label, .ssh-field-row label { display: block; margin: 12px 0 6px; font-size: 13px; }
+dialog input { width: 100%; padding: 9px 10px; border: 1px solid #334155; border-radius: 8px; color: #e5e7eb; background: #0f172a; font: inherit; font-size: 13px; }
+.ssh-field-row { display: grid; grid-template-columns: minmax(0, 1fr) 92px; gap: 10px; }
+.ssh-key-picker { display: flex; gap: 8px; }
+.ssh-key-picker button { flex-shrink: 0; }
+.ssh-dialog-actions { flex-wrap: wrap; margin-top: 16px; }
+#ssh-test-result { white-space: pre-line; color: #86efac; font-size: 13px; overflow-wrap: anywhere; }
+#ssh-test-result.error { color: #fda4af; }
+
 @keyframes breathe {
   50% { transform: translateY(-5px) scale(1.02); }
 }

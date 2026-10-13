@@ -1,6 +1,7 @@
 (() => {
   const listeners = new Set();
   let snapshot;
+  const verifications = new Map();
   const clone = () => structuredClone(snapshot);
   const feedback = text => { document.querySelector('#demo-feedback').textContent = text; };
   function emit(text) { for (const listener of listeners) listener(clone()); if (text) feedback(text); return clone(); }
@@ -64,6 +65,32 @@
     async setEnvironmentEnabled(id, enabled) { return enabled ? this.startEnvironment(id) : this.stopEnvironment(id); },
     async setFocus(focus) { snapshot.preferences.focus = focus; return emit('已保存示例关注范围；独立悬浮桌宠不包含在此主面板预览中。'); },
     async scanEnvironments() { return emit('模拟扫描完成：此页面使用固定示例环境，没有读取你的 Windows。'); },
+    async pickPrivateKey() { return '/demo/id_ed25519'; },
+    async testSshConnection({ profile }) {
+      const verificationId = crypto.randomUUID();
+      verifications.set(verificationId, JSON.stringify(profile));
+      return { verificationId, hostname: profile.name, architecture: 'arm64', agents: { codex: true, copilot: true } };
+    },
+    async saveSshEnvironment({ profile, environmentId, verificationId }) {
+      if (verificationId && verifications.get(verificationId) !== JSON.stringify(profile)) throw new Error('连接检查已失效，请重新测试');
+      verifications.delete(verificationId);
+      let env = environmentId ? environment(environmentId) : undefined;
+      if (!env) {
+        const id = `demo-${crypto.randomUUID()}`;
+        snapshot.devices.push({ deviceId: id, name: profile.name, kind: 'remote' });
+        env = { environmentId: id, deviceId: id, kind: 'ssh', status: 'stopped', enabled: false, codexApprovalsEnabled: false };
+        snapshot.environments.push(env);
+      }
+      const { name, ...connection } = profile;
+      Object.assign(env, { name, sshHost: profile.host, sshConnection: connection });
+      return { snapshot: emit('已保存模拟设备配置，没有连接真实设备。'), environmentId: env.environmentId };
+    },
+    async removeSshEnvironment(id) {
+      release(id);
+      snapshot.environments = snapshot.environments.filter(item => item.environmentId !== id);
+      snapshot.devices = snapshot.devices.filter(item => snapshot.environments.some(env => env.deviceId === item.deviceId));
+      return emit('已移除模拟设备配置，未操作真实设备。');
+    },
     async addSshEnvironment(host) {
       if (!snapshot.environments.some(item => item.sshHost === host)) {
         const id = `demo-${Date.now()}`;

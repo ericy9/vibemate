@@ -56,7 +56,12 @@ export class EnvironmentStore {
 
   private static discoveryKey(environment: EnvironmentConfig): string {
     if (environment.kind === "wsl") return `wsl:${environment.distribution.toLowerCase()}`;
-    if (environment.kind === "ssh") return `ssh:${environment.sshHost.toLowerCase()}`;
+    if (environment.kind === "ssh") {
+      const connection = environment.sshConnection;
+      return connection
+        ? `ssh:manual:${connection.host.toLowerCase()}:${connection.port}:${connection.username}`
+        : `ssh:${environment.sshHost.toLowerCase()}`;
+    }
     return "windows";
   }
 }

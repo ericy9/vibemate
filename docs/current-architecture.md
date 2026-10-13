@@ -19,7 +19,8 @@ Windows 设备
 - 桌面端按 `environmentId` 维护多条独立连接并聚合快照。
 - 全局会话身份为 `deviceId + environmentId + agent + sessionId`。
 - 权限路由在此基础上增加 `requestId`；Agent Hook Protocol v1 本身保持不变。
-- 配置文件只保存设备、环境和显示偏好，不保存 WebSocket 地址或 Token。
+- 配置文件保存设备、环境、SSH 地址/端口/用户名/私钥路径/已确认主机指纹和显示偏好，
+  不保存密码、密钥口令、私钥内容、WebSocket 地址或 Token。
 
 ## 进程与通信
 
@@ -36,7 +37,8 @@ flowchart LR
 
 Receiver 的 Agent 接收端始终监听 `127.0.0.1`。桌面控制流也使用 Receiver 启动时
 生成的动态端口和临时高熵 Token：WSL 使用 Windows 的 localhost 转发；独立 Linux
-使用系统 OpenSSH 隧道。普通用户不需要输入 IP、端口、Token 或 WebSocket URL。
+使用 SSH 隧道。普通用户在添加设备时填写设备地址和 SSH 登录信息，不需要配置
+Receiver 端口、Token 或 WebSocket URL。
 
 ## 环境发现与接入
 
@@ -56,12 +58,23 @@ Codex/Copilot Hook，并启动内嵌 Receiver。打包版 Hook 使用 Electron �
 
 ### SSH Linux / 树莓派
 
-- 只读解析 `~/.ssh/config` 的具体 Host 别名，也允许用户在 GUI 填写别名或 IP。
-- 所有连接均调用系统 `ssh`，使用现有 OpenSSH config、key 和 agent；VibeMate 不保存
-  SSH 密码或私钥。
-- 只有用户点击“开始监控”后才运行 `ssh -G`、识别架构、部署运行时并连接。
-- 第一条长连接控制远端 Receiver 生命周期，第二条 SSH 连接提供本地端口隧道。
-- SSH 环境不会随 VibeMate 启动而自动连接。
+- 设置页提供实际设备表单：名称、地址、端口、用户名，以及密码或私钥文件登录；
+  密钥文件使用原生文件选择器，加密私钥支持口令。
+- 手动设备使用随桌面端打包的 `ssh2` 客户端，无需预先配置系统 SSH 或安装公钥。
+  可选原生加速模块不进入 Windows 包，使用 JavaScript 实现。
+- 首次连接通过原生确认框展示真实 SHA256 主机指纹；确认后固定设备身份，已保存
+  身份发生变化时拒绝连接。密码和密钥口令仅在主进程内存中保留到应用退出。
+- “保存配置”不发起连接。“测试连接”只执行只读登录检查，验证 Linux x64/ARM64、
+  `tar` 和 Agent 的命令可见性，不部署 Receiver 或安装 Hook。
+- 测试成功生成 5 分钟有效、绑定连接参数且一次性使用的验证记录。保存时只持久化
+  非敏感连接字段和主机指纹；凭证交给主进程内存缓存。表单修改连接信息后须重新测试。
+- 用户点击“安装并开始监控”才通过 SSH 流上传运行时、注册 Hook、启动 managed
+  Receiver，并以同一 SSH 连接的独立通道转发 loopback WebSocket。退出时先发送
+  shutdown，再关闭本地转发和 SSH 连接。
+- 只读解析 `~/.ssh/config` 的已有 Host 别名仍然保留。这类环境沿用系统 OpenSSH
+  config、key 和 agent，使用控制连接和单独的端口转发进程。
+- SSH 环境不会随 VibeMate 启动而自动连接。重启后可打开“连接设置”重新输入密码
+  或加密密钥口令；无需重复手工编辑 SSH 配置。
 
 ## Receiver managed 生命周期
 

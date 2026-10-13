@@ -17,6 +17,7 @@ const banner = `<aside style="padding:16px 22px;background:#202c46;border-bottom
 const routes = new Map([
   ['/styles.css', [new URL('styles.css', desktop), 'text/css']],
   ['/renderer.js', [new URL('renderer.js', desktop), 'text/javascript']],
+  ['/ssh-device-dialog.js', [new URL('ssh-device-dialog.js', desktop), 'text/javascript']],
   ['/monitor-mock.js', [new URL('monitor-mock.js', import.meta.url), 'text/javascript']],
   ['/floating', [new URL('floating.html', import.meta.url), 'text/html']],
   ['/floating.js', [new URL('floating.js', import.meta.url), 'text/javascript']],
@@ -52,4 +53,6 @@ const server = createServer(async (req, res) => {
     res.end(req.method === 'HEAD' ? undefined : body);
   } catch { res.writeHead(500).end('Preview unavailable'); }
 });
-server.listen(18883, '0.0.0.0', () => console.log('Monitoring preview: http://10.188.0.34:18883/'));
+const port = Number(process.env.VIBEMATE_PREVIEW_PORT ?? 18883);
+const host = process.env.VIBEMATE_PREVIEW_HOST ?? '0.0.0.0';
+server.listen(port, host, () => console.log(`Monitoring preview: http://${host === '0.0.0.0' ? '127.0.0.1' : host}:${port}/`));

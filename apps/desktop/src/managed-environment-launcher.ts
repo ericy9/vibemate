@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { EnvironmentConfig } from "./environment-types.js";
 import type { EnvironmentLauncher, ReceiverEndpoint } from "./receiver-connection-manager.js";
 import { EmbeddedReceiverLauncher } from "./receiver-connection-manager.js";
+import type { ManualSshLauncher } from "./manual-ssh-launcher.js";
 
 interface ReadyMessage {
   type: "ready";
@@ -85,11 +86,15 @@ async function availablePort(): Promise<number> {
 export class ManagedEnvironmentLauncher implements EnvironmentLauncher {
   private readonly embedded = new EmbeddedReceiverLauncher();
 
-  constructor(private readonly payloadRoot?: string) {}
+  constructor(private readonly payloadRoot?: string, private readonly manualSsh?: ManualSshLauncher) {}
 
   async start(environment: EnvironmentConfig): Promise<ReceiverEndpoint> {
     if (environment.kind === "windows") return this.embedded.start(environment);
     if (environment.kind === "wsl") return this.startWsl(environment.distribution);
+    if (environment.sshConnection) {
+      if (!this.manualSsh) throw new Error("请通过客户端配置设备连接");
+      return this.manualSsh.start(environment);
+    }
     return this.startSsh(environment.sshHost);
   }
 

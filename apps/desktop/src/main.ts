@@ -13,6 +13,7 @@ import {
   screen,
   Tray,
   type Rectangle,
+  type IpcMainInvokeEvent,
 } from "electron";
 import { installCodexHooks, installCopilotHooks } from "@vibemate/hook-installer";
 import { discoverSshHosts, discoverWsl } from "./environment-discovery.js";
@@ -20,6 +21,9 @@ import { EnvironmentStore } from "./environment-store.js";
 import type { DesktopConfiguration, EnvironmentConfig } from "./environment-types.js";
 import { ManagedEnvironmentLauncher } from "./managed-environment-launcher.js";
 import { ReceiverConnectionManager } from "./receiver-connection-manager.js";
+import { ManualSshLauncher } from "./manual-ssh-launcher.js";
+import { connectionKey, parseSshCredentials, parseSshDeviceInput, SshConnectionService } from "./ssh-connection.js";
+import { configureSshEnvironment, previousFingerprint } from "./ssh-environment-settings.js";
 
 const sourceDirectory = fileURLToPath(new URL(".", import.meta.url));
 const rendererDirectory = join(sourceDirectory, "../src/renderer");
@@ -56,6 +60,17 @@ async function installWindowsHooks(): Promise<void> {
 let configuration: DesktopConfiguration;
 let environmentStore: EnvironmentStore;
 let receiverManager: ReceiverConnectionManager;
+const sshConnections = new SshConnectionService(async ({ host, port, fingerprint }) => {
+  const options = {
+    type: "question" as const,
+    title: "确认设备身份",
+    message: `首次连接 ${host}:${port}，是否信任这台设备？`,
+    detail: `设备指纹：\n${fingerprint}\n\n请与设备管理者核对。确认后将保存此设备身份，身份改变时会停止连接。`,
+    buttons: ["取消", "信任并继续"], defaultId: 0, cancelId: 0,
+  };
+  const result = controlWindow ? await dialog.showMessageBox(controlWindow, options) : await dialog.showMessageBox(options);
+  return result.response === 1;
+});
 
 let controlWindow: BrowserWindow | undefined;
 let petWindow: BrowserWindow | undefined;
@@ -580,6 +595,78 @@ ipcMain.handle("vibemate:add-ssh-environment", async (_event, value: unknown) =>
   return getSnapshot();
 });
 
+function settingsInput(event: IpcMainInvokeEvent, value: unknown): Record<string, unknown> {
+  if (!controlWindow || event.sender !== controlWindow.webContents) throw new Error("请从 VibeMate 设置页配置设备");
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new TypeError("设备信息格式不正确");
+  return value as Record<string, unknown>;
+}
+
+ipcMain.handle("vibemate:pick-private-key", async (event) => {
+  settingsInput(event, {});
+  const result = await dialog.showOpenDialog(controlWindow!, { title: "选择 SSH 私钥文件", properties: ["openFile"] });
+  return result.canceled ? undefined : result.filePaths[0];
+});
+
+ipcMain.handle("vibemate:test-ssh-connection", async (event, value: unknown) => {
+  const input = settingsInput(event, value);
+  const profile = parseSshDeviceInput(input.profile);
+  if (input.environmentId !== undefined && typeof input.environmentId !== "string") throw new TypeError("设备编号不正确");
+  const existing = configuration.environments.find(item => input.environmentId
+    ? item.environmentId === input.environmentId
+    : item.kind === "ssh" && item.sshConnection?.host.toLowerCase() === profile.host.toLowerCase() && item.sshConnection.port === profile.port);
+  if (input.environmentId && existing?.kind !== "ssh") throw new Error("设备不存在，请刷新设置后重试");
+  return sshConnections.test(profile, parseSshCredentials(input.credentials), previousFingerprint(existing?.kind === "ssh" ? existing : undefined, profile));
+});
+
+ipcMain.handle("vibemate:save-ssh-environment", async (event, value: unknown) => {
+  const input = settingsInput(event, value);
+  const profile = parseSshDeviceInput(input.profile);
+  if (input.environmentId !== undefined && typeof input.environmentId !== "string") throw new TypeError("设备编号不正确");
+  if (input.verificationId !== undefined && typeof input.verificationId !== "string") throw new TypeError("连接检查编号不正确");
+  const existing = configuration.environments.find(item => input.environmentId
+    ? item.environmentId === input.environmentId
+    : item.kind === "ssh" && item.sshConnection?.host.toLowerCase() === profile.host.toLowerCase()
+      && item.sshConnection.port === profile.port && item.sshConnection.username === profile.username);
+  const view = receiverManager.getSnapshot().environments.find(item => item.environmentId === existing?.environmentId);
+  if (view?.status === "connected" || view?.status === "starting") throw new Error("请先停止该设备监控，再修改连接信息");
+  const verified = input.verificationId ? sshConnections.takeVerification(input.verificationId, profile) : undefined;
+  const next = configureSshEnvironment(configuration, profile, verified?.connection, input.environmentId as string | undefined);
+  await environmentStore.save(next.configuration);
+  if (existing) await receiverManager.stop(existing.environmentId);
+  if (existing?.kind === "ssh" && existing.sshConnection
+    && connectionKey(existing.sshConnection) !== connectionKey(next.environment.sshConnection!)) sshConnections.forget(existing.sshConnection);
+  if (verified) sshConnections.remember(next.environment.sshConnection!, verified.credentials);
+  configuration = next.configuration;
+  receiverManager.setConfiguration(configuration);
+  return { snapshot: getSnapshot(), environmentId: next.environment.environmentId };
+});
+
+ipcMain.handle("vibemate:remove-ssh-environment", async (event, environmentId: unknown) => {
+  settingsInput(event, {});
+  if (typeof environmentId !== "string") throw new TypeError("设备编号不正确");
+  const environment = configuration.environments.find(item => item.environmentId === environmentId);
+  if (environment?.kind !== "ssh") throw new Error("设备不存在，请刷新设置后重试");
+  const answer = await dialog.showMessageBox(controlWindow!, {
+    type: "question", title: "移除设备配置", message: `从 VibeMate 移除“${environment.name}”的连接配置？`,
+    detail: "将停止此设备监控并移除本次保存的登录凭证。设备上的接收端文件和 Agent Hook 会保留，你可以稍后重新添加设备。",
+    buttons: ["取消", "移除配置"], defaultId: 0, cancelId: 0,
+  });
+  if (answer.response !== 1) return getSnapshot();
+  await receiverManager.stop(environmentId);
+  const next = structuredClone(configuration);
+  next.environments = next.environments.filter(item => item.environmentId !== environmentId);
+  if (!next.environments.some(item => item.deviceId === environment.deviceId)) next.devices = next.devices.filter(item => item.deviceId !== environment.deviceId);
+  await environmentStore.save(next);
+  if (environment.sshConnection) {
+    sshConnections.forget(environment.sshConnection);
+    if (!next.environments.some(item => item.kind === "ssh"
+      && item.sshConnection?.host.toLowerCase() === environment.sshConnection!.host.toLowerCase()
+      && item.sshConnection.port === environment.sshConnection!.port)) sshConnections.forgetHost(environment.sshConnection);
+  }
+  configuration = next; receiverManager.setConfiguration(configuration);
+  return getSnapshot();
+});
+
 ipcMain.handle("vibemate:set-focus", async (_event, focus: unknown) => {
   if (!focus || typeof focus !== "object" || !("kind" in focus)
     || !["all", "device", "environment", "project", "session"].includes(String(focus.kind))
@@ -603,7 +690,7 @@ async function startDesktop(): Promise<void> {
     const payloadRoot = app.isPackaged
       ? join(process.resourcesPath, "linux-payload")
       : fileURLToPath(new URL("../../../build/linux-payload", import.meta.url));
-    receiverManager = new ReceiverConnectionManager(configuration, new ManagedEnvironmentLauncher(payloadRoot), (error) => {
+    receiverManager = new ReceiverConnectionManager(configuration, new ManagedEnvironmentLauncher(payloadRoot, new ManualSshLauncher(payloadRoot, sshConnections)), (error) => {
       console.error("Environment Receiver error:", error.message);
     });
     receiverManager.subscribe(scheduleSnapshot);
@@ -679,6 +766,7 @@ app.on("before-quit", (event) => {
       const message = error instanceof Error ? error.message : "unknown shutdown error";
       console.error(`VibeMate desktop shutdown failed: ${message}`);
     }
+    sshConnections.clear();
     app.quit();
   })();
 });

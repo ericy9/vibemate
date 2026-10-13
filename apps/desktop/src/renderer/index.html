@@ -17,12 +17,13 @@
         <div class="section-heading">
           <h2>环境</h2>
           <div class="heading-actions">
-            <button id="add-ssh" class="compact" type="button">添加 SSH</button>
+            <button id="add-ssh" class="compact" type="button">添加设备</button>
             <button id="scan-environments" class="compact" type="button">扫描本机与 WSL</button>
           </div>
         </div>
         <p id="onboarding-tip" class="connection-detail">请选择要监控的环境。VibeMate 不会自动启动已关闭的 WSL，也不会自动连接 SSH。</p>
         <div id="environments" class="list empty">正在检测环境…</div>
+        <p id="settings-feedback" class="connection-detail" role="status" aria-live="polite"></p>
       </section>
 
       <section class="card">
@@ -31,6 +32,44 @@
         <p class="connection-detail">范围外的审批和错误只显示角标，不会抢占桌宠动画。悬浮监控窗始终显示全部环境。</p>
       </section>
     </main>
+    <dialog id="ssh-device-dialog" aria-labelledby="ssh-dialog-title">
+      <form id="ssh-device-form">
+        <div class="section-heading">
+          <h2 id="ssh-dialog-title">添加 Linux 设备</h2>
+          <button id="ssh-dialog-close" class="compact secondary" type="button" aria-label="关闭设备配置">关闭</button>
+        </div>
+        <p class="connection-detail">填写设备登录信息，测试成功后即可安装并开始监控。支持 Linux 电脑和树莓派。</p>
+        <label for="ssh-name">设备名称</label>
+        <input id="ssh-name" required maxlength="80" autocomplete="off" placeholder="例如：我的树莓派">
+        <div class="ssh-field-row">
+          <div><label for="ssh-host">主机地址</label><input id="ssh-host" required maxlength="253" autocomplete="off" placeholder="IP 或域名，例如 192.168.1.50"></div>
+          <div><label for="ssh-port">SSH 端口</label><input id="ssh-port" required type="number" min="1" max="65535" step="1" value="22"></div>
+        </div>
+        <label for="ssh-username">登录用户名</label>
+        <input id="ssh-username" required maxlength="64" autocomplete="off" placeholder="例如：pi 或 ubuntu">
+        <p class="connection-detail">使用运行 Copilot / Codex 的用户，接收端和 Hook 将安装到该用户目录。</p>
+        <label for="ssh-authentication">登录方式</label>
+        <select id="ssh-authentication"><option value="password">用户名和密码</option><option value="key">SSH 私钥文件</option></select>
+        <div id="ssh-password-fields">
+          <label for="ssh-password">设备登录密码</label>
+          <input id="ssh-password" type="password" maxlength="4096" autocomplete="off">
+        </div>
+        <div id="ssh-key-fields" hidden>
+          <label for="ssh-private-key">私钥文件</label>
+          <div class="ssh-key-picker"><input id="ssh-private-key" autocomplete="off" placeholder="选择私钥文件（不是 .pub 公钥）"><button id="ssh-pick-key" class="secondary" type="button">选择文件</button></div>
+          <label for="ssh-passphrase">密钥口令（如有）</label>
+          <input id="ssh-passphrase" type="password" maxlength="4096" autocomplete="off">
+        </div>
+        <p class="connection-detail">密码和密钥口令仅在本次应用运行期间保留。下次启动需重新输入；私钥只从所选文件读取。</p>
+        <p id="ssh-test-result" role="status" aria-live="polite"></p>
+        <div class="actions ssh-dialog-actions">
+          <button id="ssh-save" class="secondary" type="button">保存配置</button>
+          <button id="ssh-test" class="secondary" type="submit">测试连接</button>
+          <button id="ssh-connect" class="allow" type="button" disabled>安装并开始监控</button>
+        </div>
+        <p class="connection-detail">测试连接只检查登录与设备环境。开始监控会部署接收端并注册 Agent Hook；完成后请重启 Agent 会话。</p>
+      </form>
+    </dialog>
     <script type="module" src="./renderer.js"></script>
   </body>
 </html>

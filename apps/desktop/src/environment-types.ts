@@ -29,6 +29,33 @@ export interface WslEnvironment extends EnvironmentBase {
 export interface SshEnvironment extends EnvironmentBase {
   kind: "ssh";
   sshHost: string;
+  sshConnection?: SshConnectionSettings;
+}
+
+export interface SshConnectionSettings {
+  host: string;
+  port: number;
+  username: string;
+  authentication: "password" | "key";
+  privateKeyPath?: string;
+  hostFingerprint?: string;
+}
+
+export interface SshDeviceInput extends Omit<SshConnectionSettings, "hostFingerprint"> {
+  name: string;
+}
+
+/** Transient IPC input. Never add these fields to EnvironmentConfig or snapshots. */
+export interface SshCredentials {
+  password?: string;
+  passphrase?: string;
+}
+
+export interface SshConnectionTest {
+  verificationId: string;
+  hostname: string;
+  architecture: "x64" | "arm64";
+  agents: { codex: boolean; copilot: boolean };
 }
 
 export type EnvironmentConfig = WindowsEnvironment | WslEnvironment | SshEnvironment;

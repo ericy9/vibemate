@@ -5,12 +5,14 @@
   "type": "module",
   "main": "./dist/main.js",
   "dependencies": {
-    "@vibemate/protocol": "*",
     "@vibemate/hook-installer": "*",
+    "@vibemate/protocol": "*",
     "@vibemate/receiver": "*",
+    "ssh2": "^1.17.0",
     "ws": "^8.21.3"
   },
   "devDependencies": {
+    "@types/ssh2": "^1.15.6",
     "@types/ws": "^8.18.1",
     "electron": "^43.4.0",
     "electron-builder": "^26.0.12"

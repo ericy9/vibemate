@@ -3,6 +3,8 @@ productName: VibeMate
 extraMetadata:
   main: apps/desktop/dist/main.js
 artifactName: VibeMate-${version}-${arch}-setup.${ext}
+# SSH2 has a JavaScript fallback. Keep optional host-built native accelerators out of cross-platform packages.
+npmRebuild: false
 directories:
   output: release
 files:
@@ -13,6 +15,8 @@ files:
   - packages/*/package.json
   - package.json
   - node_modules/**
+  - '!node_modules/cpu-features/**'
+  - '!node_modules/ssh2/lib/protocol/crypto/build/**'
 extraResources:
   - from: packages/hook-runner/dist
     to: app/hook-runner

@@ -1,8 +1,12 @@
+import { createSshDeviceDialog } from './ssh-device-dialog.js';
+
 const environmentsContainer = document.querySelector("#environments");
 const scanButton = document.querySelector("#scan-environments");
 const onboardingTip = document.querySelector("#onboarding-tip");
 const focusSelect = document.querySelector("#pet-focus");
 const addSshButton = document.querySelector("#add-ssh");
+const feedback = document.querySelector("#settings-feedback");
+const sshDialog = createSshDeviceDialog(window.vibemate, render, message => { feedback.textContent = message; });
 
 function addApprovalSettings(main, environment) {
   const approvalLabel = document.createElement("label");
@@ -45,12 +49,34 @@ function createEnvironmentRow(environment) {
     try {
       if (active) await window.vibemate.stopEnvironment(environment.environmentId);
       else if (environment.kind === "windows") await window.vibemate.setEnvironmentEnabled(environment.environmentId, true);
+      else if (environment.sshConnection) { sshDialog.open(environment); }
       else await window.vibemate.startEnvironment(environment.environmentId);
+    } catch (error) {
+      feedback.textContent = error.message;
     } finally {
       action.disabled = false;
     }
   });
-  row.append(main, action);
+  const actions = document.createElement("div");
+  actions.className = "environment-actions";
+  if (environment.sshConnection) {
+    const edit = document.createElement("button"); edit.type = "button"; edit.className = "compact secondary";
+    edit.textContent = "连接设置"; edit.disabled = active;
+    edit.onclick = () => sshDialog.open(environment); actions.append(edit);
+    const remove = document.createElement("button"); remove.type = "button"; remove.className = "compact secondary";
+    remove.textContent = "移除配置"; remove.disabled = active;
+    remove.onclick = async () => {
+      remove.disabled = true;
+      try { render(await window.vibemate.removeSshEnvironment(environment.environmentId)); }
+      catch (error) { feedback.textContent = error.message; }
+      finally { remove.disabled = false; }
+    };
+    actions.append(remove);
+    const address = document.createElement("span");
+    address.textContent = `${environment.sshConnection.username}@${environment.sshConnection.host}:${environment.sshConnection.port}`;
+    main.append(address);
+  }
+  actions.append(action); row.append(main, actions);
   return row;
 }
 
@@ -84,8 +110,4 @@ focusSelect.addEventListener("change", async () => {
   const id = focusSelect.value.slice(separator + 1);
   render(await window.vibemate.setFocus(kind === "all" ? { kind } : { kind, id }));
 });
-addSshButton.addEventListener("click", async () => {
-  const host = window.prompt("请输入 ~/.ssh/config 中的主机别名（例如 pi）");
-  if (!host) return;
-  render(await window.vibemate.addSshEnvironment(host.trim()));
-});
+addSshButton.addEventListener("click", () => sshDialog.open());
