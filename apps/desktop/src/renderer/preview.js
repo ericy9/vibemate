@@ -7,12 +7,17 @@ const DOT_AFTER_EMPTY = 30_000;
 const COLLAPSE_DELAY = 3_000;
 const DRAG_THRESHOLD = 4;
 const MAX_ROWS = 5;
+const TOAST_DURATION = 6_000;
+const noticeText = { completed: '已完成', failed: '失败了', waiting_permission: '需要你' };
 
 let snapshot = {};
-let expanded = new URLSearchParams(location.search).get('show') === 'expanded';
+let expanded = location.hash==='#exp';
 let hovered = false;
 let emptySince = Date.now();
 let collapseTimer;
+let toast; // { id, kind, text, extra }
+let toastTimer;
+let highlightId;
 const pendingCommands = new Set();
 const identity = item => `${item.environmentId}/${item.agent}/${item.sessionId}`;
 
@@ -25,6 +30,7 @@ function visibleTasks(value) {
 
 function currentMode(taskCount) {
   if (expanded) return 'expanded';
+  if (toast) return 'toast';
   if (taskCount === 0 && Date.now() - emptySince > DOT_AFTER_EMPTY) return 'dot';
   return 'capsule';
 }
@@ -54,11 +60,11 @@ function buildTask(session, value, permissions) {
   const agentName = session.agent === 'codex' ? 'Codex' : 'Copilot';
 
   const card = document.createElement('div');
-  card.className = `task state-${session.state}${attention ? ' needs-attention' : ''}${offline ? ' offline' : ''}`;
+  card.className = `task state-${session.state}${attention ? ' needs-attention' : ''}${offline ? ' offline' : ''}${key === highlightId ? ' highlight' : ''}`;
 
   const state = document.createElement('span'); state.className = 'task-state';
   const main = document.createElement('span'); main.className = 'task-main';
-  const title = document.createElement('span'); title.className = 'task-title'; title.textContent = session.sessionId; title.title = session.sessionId;
+  const title = document.createElement('span'); title.className = 'task-title'; title.textContent = session.project ?? session.sessionId; title.title = `${session.project ?? ''} ${session.sessionId}`.trim();
   const meta = document.createElement('span'); meta.className = 'task-meta'; meta.textContent = `${session.environmentName ?? '本机'} · ${agentName}`;
   main.append(title, meta);
   const side = document.createElement('span'); side.className = 'task-side';
@@ -120,6 +126,12 @@ function render(value) {
   $('capsule-working').parentElement.hidden = running === 0;
   $('capsule-attention').parentElement.hidden = attention === 0;
   $('capsule-completed').parentElement.hidden = done === 0;
+  $('capsule-toast').hidden = !toast;
+  if (toast) {
+    $('capsule-toast').dataset.kind = toast.kind;
+    $('capsule-toast-text').textContent = toast.text;
+    $('capsule-toast-extra').textContent = toast.extra > 0 ? `+${toast.extra}` : '';
+  }
   $('capsule-text').textContent = tasks.length === 0 ? (connected === 0 ? '未连接' : '空闲') : '';
   $('capsule').setAttribute('aria-label', attention ? `${attention} 个任务需要你，点击展开` : '展开任务监控');
   $('capsule').title = `${running} 进行中 · ${attention} 待处理 · ${done} 刚完成`;
@@ -137,10 +149,29 @@ function render(value) {
   reportState();
 }
 
+function showNotice(notice) {
+  const agent = notice.agent === 'codex' ? 'Codex' : 'Copilot';
+  const text = `${notice.environmentName} · ${notice.project ?? agent} ${noticeText[notice.kind] ?? ''}`;
+  // Notices arriving while one is still showing collapse into "+N" so nothing flickers past unseen.
+  const extra = toast && toast.id !== notice.id ? toast.extra + 1 : toast?.extra ?? 0;
+  toast = { id: notice.id, kind: notice.kind, text, extra };
+  highlightId = notice.id;
+  emptySince = Date.now();
+  clearTimeout(toastTimer);
+  const expire = () => {
+    if (hovered) { toastTimer = setTimeout(expire, 1_000); return; }
+    toast = undefined; render(snapshot);
+  };
+  toastTimer = setTimeout(expire, TOAST_DURATION);
+  if (notice.expand) { toast = undefined; setExpanded(true); scheduleCollapse(); }
+  render(snapshot);
+}
+
 function setExpanded(next) {
   if (expanded === next) return;
   expanded = next;
-  if (!next) $('feedback').textContent = '';
+  if (next) { toast = undefined; clearTimeout(toastTimer); }
+  if (!next) { $('feedback').textContent = ''; highlightId = undefined; }
   render(snapshot);
 }
 
@@ -186,5 +217,6 @@ document.body.addEventListener('mouseenter', () => { hovered = true; clearTimeou
 document.body.addEventListener('mouseleave', () => { hovered = false; scheduleCollapse(); reportState(); });
 
 api.onSnapshot(render);
+api.onNotice?.(showNotice);
 render(await api.getSnapshot());
 setInterval(() => render(snapshot), 10_000);

@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { parsePermissionDecision } from "@vibemate/protocol";
 import { VibeMateReceiver } from "@vibemate/receiver";
 import type { DesktopConfiguration, AggregatedSnapshot, EnvironmentConfig, EnvironmentStatus } from "./environment-types.js";
+import { projectName } from "./task-notifier.js";
 import { RemoteReceiverClient } from "./remote-receiver-client.js";
 
 export interface ReceiverEndpoint {
@@ -137,7 +138,10 @@ export class ReceiverConnectionManager {
       if (!environment || !connection.client) continue;
       const snapshot = connection.client.getSnapshot();
       const source = { deviceId: environment.deviceId, environmentId, environmentName: environment.name };
-      sessions.push(...snapshot.sessions.map((session) => ({ ...session, ...source })));
+      sessions.push(...snapshot.sessions.map((session) => {
+        const project = projectName(session);
+        return { ...session, ...source, ...(project ? { project } : {}) };
+      }));
       pendingPermissions.push(...snapshot.pendingPermissions.map((permission) => ({ ...permission, ...source })));
     }
     sessions.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));

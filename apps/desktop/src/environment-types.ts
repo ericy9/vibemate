@@ -70,6 +70,8 @@ export type AggregatedSession = ReceiverSnapshot["sessions"][number] & {
   deviceId: string;
   environmentId: string;
   environmentName: string;
+  /** Last segment of the session's working directory, when the agent reported one. */
+  project?: string;
 };
 
 export type AggregatedPermission = ReceiverSnapshot["pendingPermissions"][number] & {
@@ -83,6 +85,8 @@ export interface DesktopPreferences {
   petEnabled: boolean;
   showPet: boolean;
   showPreview: boolean;
+  /** OS notification when a task completes, fails or needs permission. */
+  systemNotifications: boolean;
   focus: { kind: "all" | "device" | "environment" | "project" | "session"; id?: string };
 }
 

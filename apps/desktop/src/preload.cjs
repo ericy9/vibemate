@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld("vibemate", {
   ),
   startEnvironment: (environmentId) => ipcRenderer.invoke("vibemate:start-environment", environmentId),
   stopEnvironment: (environmentId) => ipcRenderer.invoke("vibemate:stop-environment", environmentId),
+  setSystemNotifications: (enabled) => ipcRenderer.invoke("vibemate:set-system-notifications", enabled),
   setPetEnabled: (enabled) => ipcRenderer.invoke("vibemate:set-pet-enabled", enabled),
   setFocus: (focus) => ipcRenderer.invoke("vibemate:set-focus", focus),
   addSshEnvironment: (host) => ipcRenderer.invoke("vibemate:add-ssh-environment", host),
@@ -24,6 +25,11 @@ contextBridge.exposeInMainWorld("vibemate", {
   removeSshEnvironment: (environmentId) => ipcRenderer.invoke("vibemate:remove-ssh-environment", environmentId),
   showControlPanel: () => ipcRenderer.send("vibemate:show-control"),
   quitApp: () => ipcRenderer.send("vibemate:quit"),
+  onNotice: (listener) => {
+    const handler = (_event, notice) => listener(notice);
+    ipcRenderer.on("vibemate:notice", handler);
+    return () => ipcRenderer.removeListener("vibemate:notice", handler);
+  },
   onSnapshot: (listener) => {
     const handler = (_event, snapshot) => listener(snapshot);
     ipcRenderer.on("vibemate:snapshot", handler);

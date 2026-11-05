@@ -74,6 +74,28 @@ button:focus-visible { outline: 2px solid #298d78; outline-offset: 2px; }
 
 #monitor[data-mode="expanded"] .capsule { display: none; }
 
+/* toast: a task just finished or needs the user; names the device and project */
+#monitor[data-mode="toast"] .capsule-metrics,
+#monitor[data-mode="toast"] .capsule-text { display: none; }
+.capsule-toast {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 280px;
+  white-space: nowrap;
+  font-weight: 600;
+  animation: toast-in .25s ease-out;
+}
+.capsule-toast span { overflow: hidden; text-overflow: ellipsis; }
+.capsule-toast b { font-weight: 600; color: #6e837a; }
+#monitor[data-mode="toast"] .capsule { background: #eef6f2; border-color: #cfe6dc; }
+#monitor[data-mode="toast"]:has([data-kind="failed"]) .capsule,
+#monitor[data-mode="toast"]:has([data-kind="waiting_permission"]) .capsule { background: #fbf3e3; border-color: #f0e2c4; }
+#monitor[data-mode="toast"]:has([data-kind="failed"]) .capsule-dot,
+#monitor[data-mode="toast"]:has([data-kind="waiting_permission"]) .capsule-dot { background: #d4a45e; }
+@keyframes toast-in { from { opacity: 0; transform: translateX(4px); } }
+.task.highlight { background: #e6f3ed; }
+
 /* ---- expanded ---- */
 .expanded {
   width: 300px;

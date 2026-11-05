@@ -10,6 +10,7 @@ import {
   ipcMain,
   Menu,
   nativeImage,
+  Notification,
   screen,
   Tray,
   type Rectangle,
@@ -24,6 +25,7 @@ import { ReceiverConnectionManager } from "./receiver-connection-manager.js";
 import { ManualSshLauncher } from "./manual-ssh-launcher.js";
 import { connectionKey, parseSshCredentials, parseSshDeviceInput, SshConnectionService } from "./ssh-connection.js";
 import { configureSshEnvironment, previousFingerprint } from "./ssh-environment-settings.js";
+import { describeNotice, TaskNotifier, type TaskNotice } from "./task-notifier.js";
 
 const sourceDirectory = fileURLToPath(new URL(".", import.meta.url));
 const rendererDirectory = join(sourceDirectory, "../src/renderer");
@@ -83,7 +85,7 @@ let quitting = false;
 function getSnapshot() {
   return receiverManager?.getSnapshot() ?? {
     devices: [], environments: [], sessions: [], pendingPermissions: [],
-    preferences: { petEnabled: false, showPet: true, showPreview: true, focus: { kind: "all" as const } },
+    preferences: { petEnabled: false, showPet: true, showPreview: true, systemNotifications: true, focus: { kind: "all" as const } },
     onboardingCompleted: false,
   };
 }
@@ -97,6 +99,8 @@ function publishSnapshot(): void {
   }
 }
 
+const taskNotifier = new TaskNotifier();
+
 function scheduleSnapshot(): void {
   if (snapshotScheduled) {
     return;
@@ -105,7 +109,23 @@ function scheduleSnapshot(): void {
   queueMicrotask(() => {
     snapshotScheduled = false;
     publishSnapshot();
+    for (const notice of taskNotifier.diff(getSnapshot())) deliverNotice(notice);
   });
+}
+
+function deliverNotice(notice: TaskNotice): void {
+  if (previewWindow && !previewWindow.isDestroyed()) {
+    previewWindow.webContents.send("vibemate:notice", notice);
+  }
+  if (!configuration.preferences.systemNotifications || !Notification.isSupported()) return;
+  const { title, body } = describeNotice(notice);
+  const toast = new Notification({ title, body, silent: notice.kind === "completed" });
+  toast.on("click", () => {
+    if (!previewWindow || previewWindow.isDestroyed()) return;
+    if (!previewWindow.isVisible()) togglePreviewWindow();
+    previewWindow.webContents.send("vibemate:notice", { ...notice, expand: true });
+  });
+  toast.show();
 }
 
 function createControlWindow(): BrowserWindow {
@@ -261,7 +281,7 @@ async function createPetWindow(): Promise<BrowserWindow> {
   return window;
 }
 
-interface PreviewState { mode: "dot" | "capsule" | "expanded"; width: number; height: number; hovered: boolean }
+interface PreviewState { mode: "dot" | "capsule" | "toast" | "expanded"; width: number; height: number; hovered: boolean }
 
 let previewState: PreviewState = { mode: "capsule", ...PREVIEW_DEFAULT_SIZE, hovered: false };
 let previewPosition: StoredPosition = { x: 0, y: 0 };
@@ -281,7 +301,7 @@ function defaultPreviewPosition(): StoredPosition {
 function previewBounds(): Rectangle {
   const { width, height, mode, hovered } = previewState;
   const area = screen.getDisplayMatching({ ...previewPosition, width, height }).workArea;
-  const revealed = hovered || mode === "expanded";
+  const revealed = hovered || mode === "expanded" || mode === "toast";
   let x = previewPosition.x;
   if (previewPosition.dock === "left") {
     x = revealed ? area.x : area.x - width + PREVIEW_PEEK;
@@ -463,7 +483,7 @@ ipcMain.on("vibemate:hide-preview", (event) => {
 ipcMain.on("vibemate:preview-state", (event, state: unknown) => {
   if (event.sender !== previewWindow?.webContents || !state || typeof state !== "object") return;
   const { mode, width, height, hovered } = state as Record<string, unknown>;
-  if ((mode !== "dot" && mode !== "capsule" && mode !== "expanded")
+  if ((mode !== "dot" && mode !== "capsule" && mode !== "toast" && mode !== "expanded")
     || typeof width !== "number" || typeof height !== "number" || typeof hovered !== "boolean"
     || !Number.isFinite(width) || !Number.isFinite(height)) return;
   previewState = {
@@ -683,6 +703,15 @@ ipcMain.handle("vibemate:remove-ssh-environment", async (event, environmentId: u
   return getSnapshot();
 });
 
+ipcMain.handle("vibemate:set-system-notifications", async (event, enabled: unknown) => {
+  settingsInput(event, {});
+  if (typeof enabled !== "boolean") throw new TypeError("invalid notification setting");
+  configuration.preferences.systemNotifications = enabled;
+  await environmentStore.save(configuration);
+  receiverManager.setConfiguration(configuration);
+  return getSnapshot();
+});
+
 ipcMain.handle("vibemate:set-pet-enabled", async (event, enabled: unknown) => {
   settingsInput(event, {});
   if (typeof enabled !== "boolean") throw new TypeError("invalid pet setting");
@@ -706,6 +735,8 @@ ipcMain.handle("vibemate:set-focus", async (_event, focus: unknown) => {
 });
 
 async function startDesktop(): Promise<void> {
+  // Windows only shows toasts for apps with an AppUserModelID matching the installer's appId.
+  if (process.platform === "win32") app.setAppUserModelId("com.dfrobot.vibemate");
   await app.whenReady();
   try {
     environmentStore = new EnvironmentStore(join(app.getPath("userData"), "environments.json"), hostname());
