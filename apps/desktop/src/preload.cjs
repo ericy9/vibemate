@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld("vibemate", {
   ),
   startEnvironment: (environmentId) => ipcRenderer.invoke("vibemate:start-environment", environmentId),
   stopEnvironment: (environmentId) => ipcRenderer.invoke("vibemate:stop-environment", environmentId),
+  setPetEnabled: (enabled) => ipcRenderer.invoke("vibemate:set-pet-enabled", enabled),
   setFocus: (focus) => ipcRenderer.invoke("vibemate:set-focus", focus),
   addSshEnvironment: (host) => ipcRenderer.invoke("vibemate:add-ssh-environment", host),
   pickPrivateKey: () => ipcRenderer.invoke("vibemate:pick-private-key"),

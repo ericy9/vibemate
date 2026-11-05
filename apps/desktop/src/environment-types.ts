@@ -79,6 +79,8 @@ export type AggregatedPermission = ReceiverSnapshot["pendingPermissions"][number
 };
 
 export interface DesktopPreferences {
+  /** Hidden easter egg: the pet window only exists once this is unlocked. */
+  petEnabled: boolean;
   showPet: boolean;
   showPreview: boolean;
   focus: { kind: "all" | "device" | "environment" | "project" | "session"; id?: string };

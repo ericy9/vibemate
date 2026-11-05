@@ -4,6 +4,7 @@ const environmentsContainer = document.querySelector("#environments");
 const scanButton = document.querySelector("#scan-environments");
 const onboardingTip = document.querySelector("#onboarding-tip");
 const focusSelect = document.querySelector("#pet-focus");
+const petSection = document.querySelector("#pet-section");
 const addSshButton = document.querySelector("#add-ssh");
 const feedback = document.querySelector("#settings-feedback");
 const sshDialog = createSshDeviceDialog(window.vibemate, render, message => { feedback.textContent = message; });
@@ -87,6 +88,7 @@ function render(snapshot) {
   environmentsContainer.classList.toggle("empty", environments.length === 0);
   if (environments.length === 0) environmentsContainer.textContent = "未发现环境";
   onboardingTip.hidden = Boolean(snapshot?.onboardingCompleted);
+  petSection.hidden = snapshot?.preferences?.petEnabled !== true;
   const focusOptions = [new Option("全部任务", "all:"),
     ...(snapshot?.devices ?? []).map((item) => new Option(`设备 · ${item.name}`, `device:${item.deviceId}`)),
     ...environments.map((item) => new Option(`环境 · ${item.name}`, `environment:${item.environmentId}`)),
@@ -111,3 +113,16 @@ focusSelect.addEventListener("change", async () => {
   render(await window.vibemate.setFocus(kind === "all" ? { kind } : { kind, id }));
 });
 addSshButton.addEventListener("click", () => sshDialog.open());
+
+// Easter egg: click the title five times in quick succession to wake the pet.
+let titleClicks = [];
+document.querySelector("#settings-title").addEventListener("click", async () => {
+  const now = Date.now();
+  titleClicks = [...titleClicks.filter((time) => now - time < 2_000), now];
+  if (titleClicks.length < 5) return;
+  titleClicks = [];
+  render(await window.vibemate.setPetEnabled(true));
+});
+document.querySelector("#pet-disable").addEventListener("click", async () => {
+  render(await window.vibemate.setPetEnabled(false));
+});

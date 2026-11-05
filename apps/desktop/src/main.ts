@@ -83,7 +83,7 @@ let quitting = false;
 function getSnapshot() {
   return receiverManager?.getSnapshot() ?? {
     devices: [], environments: [], sessions: [], pendingPermissions: [],
-    preferences: { showPet: true, showPreview: true, focus: { kind: "all" as const } },
+    preferences: { petEnabled: false, showPet: true, showPreview: true, focus: { kind: "all" as const } },
     onboardingCompleted: false,
   };
 }
@@ -377,6 +377,22 @@ function showControlWindow(): void {
   controlWindow.focus();
 }
 
+async function setPetEnabled(enabled: boolean): Promise<void> {
+  configuration.preferences.petEnabled = enabled;
+  if (enabled) {
+    configuration.preferences.showPet = true;
+    petWindow ??= await createPetWindow();
+    petWindow.showInactive();
+  } else if (petWindow) {
+    await savePetPosition().catch(() => undefined);
+    petWindow.destroy();
+    petWindow = undefined;
+  }
+  await environmentStore.save(configuration);
+  receiverManager.setConfiguration(configuration);
+  updateTrayMenu();
+}
+
 function togglePetWindow(): void {
   if (!petWindow) {
     return;
@@ -411,17 +427,17 @@ function updateTrayMenu(): void {
   }
   tray.setContextMenu(Menu.buildFromTemplate([
     {
-      label: petWindow?.isVisible() ? "隐藏桌宠" : "显示桌宠",
-      click: togglePetWindow,
+      label: previewWindow?.isVisible() ? "隐藏悬浮提醒窗" : "显示悬浮提醒窗",
+      click: togglePreviewWindow,
     },
     {
       label: "设置…",
       click: showControlWindow,
     },
-    {
-      label: previewWindow?.isVisible() ? "隐藏悬浮监控窗" : "显示悬浮监控窗",
-      click: togglePreviewWindow,
-    },
+    ...(petWindow ? [{
+      label: petWindow.isVisible() ? "隐藏桌宠" : "显示桌宠",
+      click: togglePetWindow,
+    }] : []),
     { type: "separator" },
     {
       label: "退出 VibeMate",
@@ -667,6 +683,13 @@ ipcMain.handle("vibemate:remove-ssh-environment", async (event, environmentId: u
   return getSnapshot();
 });
 
+ipcMain.handle("vibemate:set-pet-enabled", async (event, enabled: unknown) => {
+  settingsInput(event, {});
+  if (typeof enabled !== "boolean") throw new TypeError("invalid pet setting");
+  await setPetEnabled(enabled);
+  return getSnapshot();
+});
+
 ipcMain.handle("vibemate:set-focus", async (_event, focus: unknown) => {
   if (!focus || typeof focus !== "object" || !("kind" in focus)
     || !["all", "device", "environment", "project", "session"].includes(String(focus.kind))
@@ -707,7 +730,7 @@ async function startDesktop(): Promise<void> {
       await Promise.allSettled(enabledRunning.map((environment) => receiverManager.start(environment.environmentId)));
     }
     controlWindow = createControlWindow();
-    petWindow = await createPetWindow();
+    if (configuration.preferences.petEnabled) petWindow = await createPetWindow();
     previewWindow = await createPreviewWindow();
     createTray();
   } catch (error) {

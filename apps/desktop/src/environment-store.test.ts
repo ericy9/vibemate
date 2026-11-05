@@ -47,6 +47,7 @@ test("older settings default both desktop surfaces to visible", async () => {
   }));
 
   const configuration = await new EnvironmentStore(path, "Test PC").load();
+  assert.equal(configuration.preferences.petEnabled, false);
   assert.equal(configuration.preferences.showPet, true);
   assert.equal(configuration.preferences.showPreview, true);
 });

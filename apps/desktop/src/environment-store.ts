@@ -11,7 +11,7 @@ export function createDefaultConfiguration(computerName: string): DesktopConfigu
     environments: [{
       environmentId: randomUUID(), deviceId, name: "Windows 本机", kind: "windows", enabled: false, codexApprovalsEnabled: false,
     }],
-    preferences: { showPet: true, showPreview: true, focus: { kind: "all" } },
+    preferences: { petEnabled: false, showPet: true, showPreview: true, focus: { kind: "all" } },
     onboardingCompleted: false,
   };
 }
@@ -33,6 +33,7 @@ export class EnvironmentStore {
       for (const environment of value.environments) {
         environment.codexApprovalsEnabled = environment.codexApprovalsEnabled === true;
       }
+      value.preferences.petEnabled = value.preferences.petEnabled === true;
       value.preferences.showPet = value.preferences.showPet !== false;
       value.preferences.showPreview = value.preferences.showPreview !== false;
       return value;
