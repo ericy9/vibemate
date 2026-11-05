@@ -12,7 +12,7 @@ window.hidePet = () => { pet.hidden = true; petToggle.textContent = '显示桌�
 function applyPanelBounds() {
   if (dragOrigin) return;
   const width = panel.offsetWidth; const stageWidth = stage.clientWidth;
-  const revealed = panelHovered || panelMode === 'expanded';
+  const revealed = panelHovered || panelMode === 'expanded' || panelMode === 'toast';
   if (panelDock === 'left') panel.style.left = `${revealed ? 0 : -width + PEEK}px`;
   else if (panelDock === 'right') panel.style.left = `${revealed ? stageWidth - width : stageWidth - PEEK}px`;
   else if (panel.style.left) panel.style.left = `${Math.max(0, Math.min(stageWidth - width, parseFloat(panel.style.left)))}px`;
@@ -62,5 +62,14 @@ for (const element of [pet]) {
   };
 }
 const floatFrame = document.getElementById('float-frame');
-floatFrame.src = '/float-panel?show=expanded';
+floatFrame.src = '/float-panel';
+document.querySelectorAll('[data-notice]').forEach(button => { button.onclick = () => {
+  const [sessionId, kind] = button.dataset.notice.split(':');
+  window.simulateNotice(sessionId, kind);
+}; });
+document.getElementById('burst').onclick = () => {
+  window.monitorDemo('working');
+  [['传感器驱动', 'completed'], ['整理接口文档', 'completed'], ['运行项目测试', 'waiting_permission']]
+    .forEach(([id, kind], index) => setTimeout(() => window.simulateNotice(id, kind), index * 400));
+};
 document.getElementById('pet-frame').src = '/pet';

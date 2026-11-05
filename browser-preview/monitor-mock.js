@@ -1,5 +1,6 @@
 (() => {
   const listeners = new Set();
+  const noticeListeners = new Set();
   let snapshot;
   const verifications = new Map();
   const clone = () => structuredClone(snapshot);
@@ -15,24 +16,26 @@
   window.monitorDemo = (mode = 'mixed') => {
     const mixed = mode === 'mixed';
     snapshot = {
-      devices: [{ deviceId: 'pc', name: '我的 Windows', kind: 'local' }, { deviceId: 'lab', name: '实验室 Linux', kind: 'remote' }],
+      devices: [{ deviceId: 'pc', name: '我的 Windows', kind: 'local' }, { deviceId: 'lab', name: '实验室 Linux', kind: 'remote' }, { deviceId: 'pi', name: '树莓派', kind: 'remote' }],
       environments: [
         { environmentId: 'windows', deviceId: 'pc', name: 'Windows 本机', kind: 'windows', status: 'connected', enabled: true, codexApprovalsEnabled: false },
         { environmentId: 'ubuntu', deviceId: 'pc', name: 'WSL · Ubuntu', kind: 'wsl', distribution: 'Ubuntu', status: 'connected', enabled: true, codexApprovalsEnabled: mixed },
         { environmentId: 'linux', deviceId: 'lab', name: '实验室 Linux', kind: 'ssh', sshHost: 'lab', status: 'connected', enabled: true, codexApprovalsEnabled: false },
+        { environmentId: 'pi', deviceId: 'pi', name: '树莓派', kind: 'ssh', sshHost: 'pi', status: 'connected', enabled: true, codexApprovalsEnabled: false },
       ],
-      preferences: { showPet: true, showPreview: true, focus: { kind: 'all' } },
+      preferences: { petEnabled: false, showPet: true, showPreview: true, systemNotifications: true, focus: { kind: 'all' } },
       onboardingCompleted: true,
       sessions: [], pendingPermissions: [],
     };
-    for (const [index, [id, agent, title, state]] of [
-      ['windows', 'codex', '前端页面调整', 'working'],
-      ['ubuntu', 'codex', '运行项目测试', 'waiting_permission'],
-      ['linux', 'copilot', '更新服务配置', 'waiting_permission'],
-      ['ubuntu', 'copilot', '整理接口文档', 'completed'],
+    for (const [index, [id, agent, title, state, project]] of [
+      ['windows', 'codex', '前端页面调整', 'working', 'vibemate-web'],
+      ['ubuntu', 'codex', '运行项目测试', 'waiting_permission', 'robot-arm'],
+      ['linux', 'copilot', '更新服务配置', 'waiting_permission', 'gateway'],
+      ['ubuntu', 'copilot', '整理接口文档', 'completed', 'api-docs'],
+      ['pi', 'codex', '传感器驱动', 'working', 'sensor-hub'],
     ].entries()) {
       const env = environment(id);
-      snapshot.sessions.push({ environmentId: id, deviceId: env.deviceId, environmentName: env.name, sourceProfile: id,
+      snapshot.sessions.push({ environmentId: id, deviceId: env.deviceId, environmentName: env.name, sourceProfile: id, project,
         agent, sessionId: title, state: mixed ? state : mode, updatedAt: new Date(Date.now() - index * 30_000).toISOString() });
     }
     if (mixed) snapshot.pendingPermissions.push({ environmentId: 'ubuntu', deviceId: 'pc', environmentName: 'WSL · Ubuntu',
@@ -40,7 +43,20 @@
       tool: { name: 'Bash · 运行项目测试', summary: '示例请求：npm test\n工作目录：/home/demo/project\n此按钮仅演示审批，不执行命令。' } });
     emit(mixed ? '示例：WSL 的 Codex 已主动开启桌面审批；Linux 的 Copilot 等待原生终端审批。' : '已切换模拟场景，未操作真实 Agent。');
   };
+  // Mirrors TaskNotifier in the desktop main process: flip a session's state and announce it.
+  window.simulateNotice = (sessionId, kind) => {
+    const session = snapshot.sessions.find(item => item.sessionId === sessionId);
+    if (!session) return;
+    session.state = kind; session.updatedAt = new Date().toISOString();
+    emit();
+    const notice = { id: `${session.environmentId}/${session.agent}/${session.sessionId}`, kind,
+      environmentName: session.environmentName, project: session.project, agent: session.agent, at: session.updatedAt };
+    for (const listener of noticeListeners) listener(notice);
+    const text = { completed: '已完成', failed: '失败了', waiting_permission: '需要你确认' }[kind];
+    feedback(`模拟提醒：${session.environmentName} · ${session.project} ${text}。桌面版会同时弹出系统通知。`);
+  };
   window.vibemate = {
+    onNotice: listener => { noticeListeners.add(listener); return () => noticeListeners.delete(listener); },
     getSnapshot: async () => clone(),
     onSnapshot: listener => { listeners.add(listener); return () => listeners.delete(listener); },
     async setCodexApprovals(id, enabled) {

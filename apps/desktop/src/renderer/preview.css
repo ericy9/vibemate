@@ -91,6 +91,7 @@ button:focus-visible { outline: 2px solid #298d78; outline-offset: 2px; }
 #monitor[data-mode="toast"] .capsule { background: #eef6f2; border-color: #cfe6dc; }
 #monitor[data-mode="toast"]:has([data-kind="failed"]) .capsule,
 #monitor[data-mode="toast"]:has([data-kind="waiting_permission"]) .capsule { background: #fbf3e3; border-color: #f0e2c4; }
+#monitor[data-mode="toast"] .capsule-dot { background: #48a68a; }
 #monitor[data-mode="toast"]:has([data-kind="failed"]) .capsule-dot,
 #monitor[data-mode="toast"]:has([data-kind="waiting_permission"]) .capsule-dot { background: #d4a45e; }
 @keyframes toast-in { from { opacity: 0; transform: translateX(4px); } }
