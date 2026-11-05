@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { hostname } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,9 +10,7 @@ import {
   Menu,
   nativeImage,
   Notification,
-  screen,
   Tray,
-  type Rectangle,
   type IpcMainInvokeEvent,
 } from "electron";
 import { installCodexHooks, installCopilotHooks } from "@vibemate/hook-installer";
@@ -25,18 +22,14 @@ import { ReceiverConnectionManager } from "./receiver-connection-manager.js";
 import { ManualSshLauncher } from "./manual-ssh-launcher.js";
 import { connectionKey, parseSshCredentials, parseSshDeviceInput, SshConnectionService } from "./ssh-connection.js";
 import { configureSshEnvironment, previousFingerprint } from "./ssh-environment-settings.js";
+import { PetWindow } from "./pet-window.js";
+import { parseReminderState, ReminderWindow } from "./reminder-window.js";
+import { WindowPositionStore } from "./window-position.js";
 import { describeNotice, TaskNotifier, type TaskNotice } from "./task-notifier.js";
 
 const sourceDirectory = fileURLToPath(new URL(".", import.meta.url));
 const rendererDirectory = join(sourceDirectory, "../src/renderer");
 const preloadPath = join(sourceDirectory, "../src/preload.cjs");
-const PET_WIDTH = 320;
-const PET_HEIGHT = 340;
-const PET_MARGIN = 20;
-const PREVIEW_MARGIN = 12;
-const PREVIEW_PEEK = 8;
-const DOCK_THRESHOLD = 16;
-const PREVIEW_DEFAULT_SIZE = { width: 220, height: 52 };
 
 function hookRunnerPath(): string {
   return app.isPackaged
@@ -75,11 +68,15 @@ const sshConnections = new SshConnectionService(async ({ host, port, fingerprint
 });
 
 let controlWindow: BrowserWindow | undefined;
-let petWindow: BrowserWindow | undefined;
-let previewWindow: BrowserWindow | undefined;
+const positions = new WindowPositionStore(app.getPath("userData"));
+const reminder = new ReminderWindow(positions, {
+  preload: preloadPath, page: join(rendererDirectory, "preview.html"), onLoad: () => publishSnapshot(),
+});
+const pet = new PetWindow(positions, {
+  preload: preloadPath, page: join(rendererDirectory, "pet.html"), onLoad: () => publishSnapshot(),
+});
 let tray: Tray | undefined;
 let snapshotScheduled = false;
-let positionSaveTimer: NodeJS.Timeout | undefined;
 let quitting = false;
 
 function getSnapshot() {
@@ -92,7 +89,7 @@ function getSnapshot() {
 
 function publishSnapshot(): void {
   const snapshot = getSnapshot();
-  for (const window of [controlWindow, petWindow, previewWindow]) {
+  for (const window of [controlWindow, pet.window, reminder.window]) {
     if (window && !window.isDestroyed()) {
       window.webContents.send("vibemate:snapshot", snapshot);
     }
@@ -114,16 +111,16 @@ function scheduleSnapshot(): void {
 }
 
 function deliverNotice(notice: TaskNotice): void {
-  if (previewWindow && !previewWindow.isDestroyed()) {
-    previewWindow.webContents.send("vibemate:notice", notice);
-  }
+  const window = reminder.window;
+  if (window && !window.isDestroyed()) window.webContents.send("vibemate:notice", notice);
   if (!configuration.preferences.systemNotifications || !Notification.isSupported()) return;
   const { title, body } = describeNotice(notice);
   const toast = new Notification({ title, body, silent: notice.kind === "completed" });
   toast.on("click", () => {
-    if (!previewWindow || previewWindow.isDestroyed()) return;
-    if (!previewWindow.isVisible()) togglePreviewWindow();
-    previewWindow.webContents.send("vibemate:notice", { ...notice, expand: true });
+    const target = reminder.window;
+    if (!target || target.isDestroyed()) return;
+    if (!target.isVisible()) togglePreviewWindow();
+    target.webContents.send("vibemate:notice", { ...notice, expand: true });
   });
   toast.show();
 }
@@ -160,231 +157,12 @@ function createControlWindow(): BrowserWindow {
   return window;
 }
 
-type Dock = "left" | "right" | undefined;
-interface StoredPosition { x: number; y: number; dock?: Dock }
-
-function positionPath(name: string): string {
-  return join(app.getPath("userData"), `${name}-position.json`);
-}
-
-function defaultPetBounds(): Rectangle {
-  const { workArea } = screen.getPrimaryDisplay();
-  return {
-    x: workArea.x + workArea.width - PET_WIDTH - PET_MARGIN,
-    y: workArea.y + workArea.height - PET_HEIGHT - PET_MARGIN,
-    width: PET_WIDTH,
-    height: PET_HEIGHT,
-  };
-}
-
-function isVisiblePosition(x: number, y: number, width: number, height: number): boolean {
-  return screen.getAllDisplays().some(({ workArea }) => (
-    x + width > workArea.x
-    && x < workArea.x + workArea.width
-    && y + height > workArea.y
-    && y < workArea.y + workArea.height
-  ));
-}
-
-async function loadPosition(name: string, width: number, height: number): Promise<StoredPosition | undefined> {
-  try {
-    const value: unknown = JSON.parse(await readFile(positionPath(name), "utf8"));
-    if (
-      value
-      && typeof value === "object"
-      && "x" in value
-      && "y" in value
-      && typeof value.x === "number"
-      && Number.isInteger(value.x)
-      && typeof value.y === "number"
-      && Number.isInteger(value.y)
-      && isVisiblePosition(value.x, value.y, width, height)
-    ) {
-      const dock = "dock" in value && (value.dock === "left" || value.dock === "right") ? value.dock : undefined;
-      return { x: value.x, y: value.y, dock };
-    }
-  } catch (error) {
-    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
-      const message = error instanceof Error ? error.message : "unknown position read error";
-      console.error(`Could not restore ${name} position: ${message}`);
-    }
-  }
-  return undefined;
-}
-
-async function savePosition(name: string, position: StoredPosition): Promise<void> {
-  const path = positionPath(name);
-  const temporaryPath = `${path}.${process.pid}.tmp`;
-  await mkdir(app.getPath("userData"), { recursive: true });
-  await writeFile(temporaryPath, `${JSON.stringify(position)}\n`, "utf8");
-  await rename(temporaryPath, path);
-}
-
-async function loadPetBounds(): Promise<Rectangle> {
-  const stored = await loadPosition("pet", PET_WIDTH, PET_HEIGHT);
-  return stored ? { x: stored.x, y: stored.y, width: PET_WIDTH, height: PET_HEIGHT } : defaultPetBounds();
-}
-
-async function savePetPosition(): Promise<void> {
-  if (!petWindow || petWindow.isDestroyed()) {
-    return;
-  }
-  const { x, y } = petWindow.getBounds();
-  await savePosition("pet", { x, y });
-}
-
-function schedulePositionSave(): void {
-  if (positionSaveTimer) {
-    clearTimeout(positionSaveTimer);
-  }
-  positionSaveTimer = setTimeout(() => {
-    positionSaveTimer = undefined;
-    void savePetPosition().catch((error: unknown) => {
-      const message = error instanceof Error ? error.message : "unknown position save error";
-      console.error(`Could not save pet position: ${message}`);
-    });
-  }, 250);
-}
-
-async function createPetWindow(): Promise<BrowserWindow> {
-  const window = new BrowserWindow({
-    ...(await loadPetBounds()),
-    transparent: true,
-    show: configuration?.preferences.showPet ?? true,
-    backgroundColor: "#00000000",
-    type: "toolbar",
-    frame: false,
-    focusable: false,
-    resizable: false,
-    hasShadow: false,
-    alwaysOnTop: true,
-    skipTaskbar: true,
-    title: "VibeMate Pet",
-    webPreferences: {
-      preload: preloadPath,
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-    },
-  });
-  window.setHasShadow(false);
-  window.setAlwaysOnTop(true, "floating");
-  window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-  void window.loadFile(join(rendererDirectory, "pet.html"));
-  window.webContents.once("did-finish-load", publishSnapshot);
-  window.on("moved", schedulePositionSave);
-  window.on("closed", () => {
-    if (petWindow === window) {
-      petWindow = undefined;
-    }
-  });
-  return window;
-}
-
-interface PreviewState { mode: "dot" | "capsule" | "toast" | "expanded"; width: number; height: number; hovered: boolean }
-
-let previewState: PreviewState = { mode: "capsule", ...PREVIEW_DEFAULT_SIZE, hovered: false };
-let previewPosition: StoredPosition = { x: 0, y: 0 };
-let previewDragOrigin: { x: number; y: number } | undefined;
-let previewSaveTimer: NodeJS.Timeout | undefined;
-
-function defaultPreviewPosition(): StoredPosition {
-  const { workArea } = screen.getPrimaryDisplay();
-  const pet = petWindow?.getBounds() ?? defaultPetBounds();
-  return {
-    x: pet.x - PREVIEW_DEFAULT_SIZE.width - PREVIEW_MARGIN,
-    y: workArea.y + workArea.height - PREVIEW_DEFAULT_SIZE.height - PREVIEW_MARGIN,
-  };
-}
-
-// Computes where the window should sit for the current mode, dock and hover state.
-function previewBounds(): Rectangle {
-  const { width, height, mode, hovered } = previewState;
-  const area = screen.getDisplayMatching({ ...previewPosition, width, height }).workArea;
-  const revealed = hovered || mode === "expanded" || mode === "toast";
-  let x = previewPosition.x;
-  if (previewPosition.dock === "left") {
-    x = revealed ? area.x : area.x - width + PREVIEW_PEEK;
-  } else if (previewPosition.dock === "right") {
-    x = revealed ? area.x + area.width - width : area.x + area.width - PREVIEW_PEEK;
-  } else {
-    x = Math.max(area.x, Math.min(x, area.x + area.width - width));
-  }
-  const y = Math.max(area.y, Math.min(previewPosition.y, area.y + area.height - height));
-  return { x, y, width, height };
-}
-
-function applyPreviewBounds(): void {
-  if (!previewWindow || previewWindow.isDestroyed() || previewDragOrigin) return;
-  previewWindow.setBounds(previewBounds());
-}
-
-function schedulePreviewSave(): void {
-  if (previewSaveTimer) clearTimeout(previewSaveTimer);
-  previewSaveTimer = setTimeout(() => {
-    previewSaveTimer = undefined;
-    void savePosition("preview", previewPosition).catch((error: unknown) => {
-      const message = error instanceof Error ? error.message : "unknown position save error";
-      console.error(`Could not save preview position: ${message}`);
-    });
-  }, 250);
-}
-
-async function createPreviewWindow(): Promise<BrowserWindow> {
-  previewPosition = (await loadPosition("preview", PREVIEW_DEFAULT_SIZE.width, PREVIEW_DEFAULT_SIZE.height))
-    ?? defaultPreviewPosition();
-  const window = new BrowserWindow({
-    ...previewBounds(),
-    transparent: true,
-    show: configuration?.preferences.showPreview ?? true,
-    backgroundColor: "#00000000",
-    type: "toolbar",
-    frame: false,
-    focusable: true,
-    resizable: false,
-    hasShadow: false,
-    alwaysOnTop: true,
-    skipTaskbar: true,
-    title: "VibeMate 悬浮监控",
-    webPreferences: { preload: preloadPath, contextIsolation: true, nodeIntegration: false, sandbox: true },
-  });
-  window.setHasShadow(false);
-  window.setAlwaysOnTop(true, "floating");
-  window.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-  void window.loadFile(join(rendererDirectory, "preview.html"));
-  window.webContents.once("did-finish-load", publishSnapshot);
-  window.on("closed", () => { if (previewWindow === window) previewWindow = undefined; });
-  return window;
-}
-
-function handlePreviewDrag(phase: "start" | "move" | "end", dx: number, dy: number): void {
-  if (!previewWindow || previewWindow.isDestroyed()) return;
-  if (phase === "start") {
-    const { x, y } = previewWindow.getBounds();
-    previewDragOrigin = { x, y };
-    return;
-  }
-  if (!previewDragOrigin) return;
-  if (phase === "move") {
-    previewWindow.setPosition(Math.round(previewDragOrigin.x + dx), Math.round(previewDragOrigin.y + dy));
-    return;
-  }
-  previewDragOrigin = undefined;
-  const bounds = previewWindow.getBounds();
-  const area = screen.getDisplayMatching(bounds).workArea;
-  let dock: Dock;
-  if (bounds.x <= area.x + DOCK_THRESHOLD) dock = "left";
-  else if (bounds.x + bounds.width >= area.x + area.width - DOCK_THRESHOLD) dock = "right";
-  previewPosition = { x: bounds.x, y: bounds.y, dock };
-  applyPreviewBounds();
-  schedulePreviewSave();
-}
-
 function togglePreviewWindow(): void {
-  if (!previewWindow) return;
-  if (previewWindow.isVisible()) previewWindow.hide();
-  else previewWindow.showInactive();
-  configuration.preferences.showPreview = previewWindow.isVisible();
+  const window = reminder.window;
+  if (!window) return;
+  if (window.isVisible()) window.hide();
+  else window.showInactive();
+  configuration.preferences.showPreview = window.isVisible();
   void environmentStore.save(configuration).catch((error: unknown) => console.error("Could not save preview preference:", error));
   updateTrayMenu();
 }
@@ -401,12 +179,9 @@ async function setPetEnabled(enabled: boolean): Promise<void> {
   configuration.preferences.petEnabled = enabled;
   if (enabled) {
     configuration.preferences.showPet = true;
-    petWindow ??= await createPetWindow();
-    petWindow.showInactive();
-  } else if (petWindow) {
-    await savePetPosition().catch(() => undefined);
-    petWindow.destroy();
-    petWindow = undefined;
+    (await pet.create(true)).showInactive();
+  } else {
+    await pet.destroy();
   }
   await environmentStore.save(configuration);
   receiverManager.setConfiguration(configuration);
@@ -414,15 +189,16 @@ async function setPetEnabled(enabled: boolean): Promise<void> {
 }
 
 function togglePetWindow(): void {
-  if (!petWindow) {
+  const window = pet.window;
+  if (!window) {
     return;
   }
-  if (petWindow.isVisible()) {
-    petWindow.hide();
+  if (window.isVisible()) {
+    window.hide();
   } else {
-    petWindow.showInactive();
+    window.showInactive();
   }
-  configuration.preferences.showPet = petWindow.isVisible();
+  configuration.preferences.showPet = window.isVisible();
   void environmentStore.save(configuration).catch((error: unknown) => console.error("Could not save pet preference:", error));
   updateTrayMenu();
 }
@@ -447,15 +223,15 @@ function updateTrayMenu(): void {
   }
   tray.setContextMenu(Menu.buildFromTemplate([
     {
-      label: previewWindow?.isVisible() ? "隐藏悬浮提醒窗" : "显示悬浮提醒窗",
+      label: reminder.window?.isVisible() ? "隐藏悬浮提醒窗" : "显示悬浮提醒窗",
       click: togglePreviewWindow,
     },
     {
       label: "设置…",
       click: showControlWindow,
     },
-    ...(petWindow ? [{
-      label: petWindow.isVisible() ? "隐藏桌宠" : "显示桌宠",
+    ...(pet.window ? [{
+      label: pet.window.isVisible() ? "隐藏桌宠" : "显示桌宠",
       click: togglePetWindow,
     }] : []),
     { type: "separator" },
@@ -477,28 +253,19 @@ function createTray(): Tray {
 
 ipcMain.handle("vibemate:get-snapshot", () => getSnapshot());
 ipcMain.on("vibemate:hide-preview", (event) => {
-  if (event.sender !== previewWindow?.webContents) return;
-  if (previewWindow.isVisible()) togglePreviewWindow();
+  if (event.sender !== reminder.window?.webContents) return;
+  if (reminder.window.isVisible()) togglePreviewWindow();
 });
-ipcMain.on("vibemate:preview-state", (event, state: unknown) => {
-  if (event.sender !== previewWindow?.webContents || !state || typeof state !== "object") return;
-  const { mode, width, height, hovered } = state as Record<string, unknown>;
-  if ((mode !== "dot" && mode !== "capsule" && mode !== "toast" && mode !== "expanded")
-    || typeof width !== "number" || typeof height !== "number" || typeof hovered !== "boolean"
-    || !Number.isFinite(width) || !Number.isFinite(height)) return;
-  previewState = {
-    mode,
-    width: Math.max(24, Math.min(600, Math.ceil(width))),
-    height: Math.max(24, Math.min(800, Math.ceil(height))),
-    hovered,
-  };
-  applyPreviewBounds();
+ipcMain.on("vibemate:preview-state", (event, value: unknown) => {
+  if (event.sender !== reminder.window?.webContents) return;
+  const state = parseReminderState(value);
+  if (state) reminder.setState(state);
 });
 ipcMain.on("vibemate:preview-drag", (event, phase: unknown, dx: unknown, dy: unknown) => {
-  if (event.sender !== previewWindow?.webContents) return;
+  if (event.sender !== reminder.window?.webContents) return;
   if ((phase !== "start" && phase !== "move" && phase !== "end")
     || typeof dx !== "number" || typeof dy !== "number" || !Number.isFinite(dx) || !Number.isFinite(dy)) return;
-  handlePreviewDrag(phase, dx, dy);
+  reminder.drag(phase, dx, dy);
 });
 ipcMain.handle("vibemate:set-codex-approvals", async (_event, environmentId: unknown, enabled: unknown) => {
   if (typeof environmentId !== "string" || typeof enabled !== "boolean") throw new TypeError("invalid approval setting");
@@ -761,8 +528,8 @@ async function startDesktop(): Promise<void> {
       await Promise.allSettled(enabledRunning.map((environment) => receiverManager.start(environment.environmentId)));
     }
     controlWindow = createControlWindow();
-    if (configuration.preferences.petEnabled) petWindow = await createPetWindow();
-    previewWindow = await createPreviewWindow();
+    if (configuration.preferences.petEnabled) await pet.create(configuration.preferences.showPet);
+    await reminder.create(configuration.preferences.showPreview);
     createTray();
   } catch (error) {
     const message = error instanceof Error ? error.message : "unknown startup error";
@@ -785,10 +552,6 @@ app.on("before-quit", (event) => {
   event.preventDefault();
   stopping = true;
   quitting = true;
-  if (positionSaveTimer) {
-    clearTimeout(positionSaveTimer);
-    positionSaveTimer = undefined;
-  }
   void (async () => {
     const pendingCount = getSnapshot().pendingPermissions.length;
     if (pendingCount > 0) {
@@ -809,7 +572,7 @@ app.on("before-quit", (event) => {
       }
     }
     try {
-      await savePetPosition();
+      await pet.save();
     } catch (error) {
       const message = error instanceof Error ? error.message : "unknown position save error";
       console.error(`Could not save pet position during shutdown: ${message}`);
