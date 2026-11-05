@@ -4,3 +4,7 @@ packages/*/dist/
 *.tsbuildinfo
 build/linux-payload/
 release/
+
+# 原始视频素材体积大，只保留在本地
+assets/raw-videos/
+assets/desktop-pet/

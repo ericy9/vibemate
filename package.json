@@ -15,7 +15,6 @@
     "start:receiver": "npm run build && node packages/receiver/dist/cli.js",
     "start:desktop": "npm run build && electron apps/desktop",
     "assets:pet": "bash scripts/process-pet-assets.sh",
-    "seedance": "node scripts/seedance.mjs",
     "hooks:install": "npm run build && node packages/hook-installer/dist/cli.js install",
     "hooks:uninstall": "npm run build && node packages/hook-installer/dist/cli.js uninstall",
     "build:linux-payload": "node scripts/build-linux-payload.mjs",

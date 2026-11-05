@@ -66,30 +66,3 @@ Linux / 树莓派设备可在客户端点击“添加设备”，填写名称、
 远端仍需已安装并登录 Codex / Copilot；默认只监控，Copilot 权限仍在原终端处理。
 
 源码模式接入 WSL/远端设备前，先执行 `npm run build:linux-payload` 生成 Linux 运行时。
-
-## 本地请求 Seedance
-
-使用 OpenLux 的豆包 Volc 接口创建 Seedance 2.0 视频任务：
-
-```bash
-export OPENLUX_API_KEY="你的 API Key"
-npm run seedance -- create "一只像素风小狗在桌面上摇尾巴" \
-  --image assets/raw-videos/geenBGlight.png \
-  --duration 5 --ratio 16:9 --resolution 720p \
-  --download output.mp4
-```
-
-默认模型为 `doubao-seedance-2-0-260128`。仅创建任务、不等待：
-
-```bash
-npm run seedance -- create "视频描述"
-```
-
-查询或继续等待已有任务：
-
-```bash
-npm run seedance -- get cgt-任务ID
-npm run seedance -- wait cgt-任务ID --download output.mp4
-```
-
-密钥只从 `OPENLUX_API_KEY` 环境变量读取，不要写入仓库。
