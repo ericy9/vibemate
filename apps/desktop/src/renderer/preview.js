@@ -126,15 +126,17 @@ function render(value) {
   $('capsule-working').parentElement.hidden = running === 0;
   $('capsule-attention').parentElement.hidden = attention === 0;
   $('capsule-completed').parentElement.hidden = done === 0;
+  document.querySelector('.capsule-metrics').hidden = running + attention + done === 0;
   $('capsule-toast').hidden = !toast;
   if (toast) {
     $('capsule-toast').dataset.kind = toast.kind;
     $('capsule-toast-text').textContent = toast.text;
     $('capsule-toast-extra').textContent = toast.extra > 0 ? `+${toast.extra}` : '';
   }
-  $('capsule-text').textContent = tasks.length === 0 ? (connected === 0 ? '未连接' : '空闲') : '';
+  const onlineDevices = new Set((value.environments ?? []).filter(e => e.status === 'connected').map(e => e.deviceId)).size;
+  $('capsule-text').textContent = tasks.length === 0 ? (onlineDevices === 0 ? '未连接设备' : `${onlineDevices} 台设备在线 · 空闲`) : '';
   $('capsule').setAttribute('aria-label', attention ? `${attention} 个任务需要你，点击展开` : '展开任务监控');
-  $('capsule').title = `${running} 进行中 · ${attention} 待处理 · ${done} 刚完成`;
+  $('capsule').title = '点击查看任务列表';
 
   $('headline').textContent = attention ? `${attention} 个任务需要你` : running ? '任务正在进行' : done ? '刚刚完成' : '没有活跃任务';
   $('connection').textContent = `${connected} 个环境在线`;

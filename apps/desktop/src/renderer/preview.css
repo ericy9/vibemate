@@ -39,14 +39,15 @@ button:focus-visible { outline: 2px solid #298d78; outline-offset: 2px; }
   background: #48a68a;
   flex: none;
 }
-.capsule-metrics { display: flex; gap: 10px; }
-.metric { display: flex; align-items: center; gap: 5px; font-variant-numeric: tabular-nums; }
-.metric i { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
-.metric b { font-weight: 600; font-size: 13px; }
+.capsule-metrics { display: flex; gap: 6px; white-space: nowrap; color: #4f645c; }
+.metric { display: flex; align-items: baseline; gap: 3px; font-variant-numeric: tabular-nums; }
+.metric b { font-weight: 650; font-size: 13px; }
+/* "·" between whichever metrics are visible */
+.metric:not([hidden]) ~ .metric:not([hidden])::before { content: "·"; margin-right: 3px; color: #a3b3ac; }
+.attention b { color: #b9822f; }
+.working b { color: #2f8a72; }
+.completed b { color: #5f7895; }
 .metric[hidden] { display: none; }
-.working i { background: #46a28b; }
-.attention i { background: #d4a45e; }
-.completed i { background: #8096af; }
 .capsule-text { color: #6e837a; white-space: nowrap; }
 .capsule-text:empty { display: none; }
 
