@@ -30,9 +30,10 @@ flowchart LR
   Hook -->|loopback HTTP + runtime token| Receiver
   Receiver --> Store[SessionStore / PermissionBroker]
   Store -->|loopback WebSocket + 临时 token| Desktop[Windows Desktop]
-  Desktop --> Panel[统一面板]
-  Desktop --> Preview[胶囊式悬浮监控窗]
-  Desktop --> Pet[单一关注范围桌宠]
+  Desktop --> Notifier[TaskNotifier]
+  Notifier --> Preview[胶囊式悬浮提醒窗]
+  Notifier --> Toast[系统通知]
+  Desktop --> Settings[设置页]
 ```
 
 Receiver 的 Agent 接收端始终监听 `127.0.0.1`。桌面控制流也使用 Receiver 启动时
@@ -110,13 +111,18 @@ Copilot 权限调用直接返回无决定。通知只更新会话的等待权限
 
 ## 展示层
 
-- 设置页只管理环境、连接状态、启停、SSH 添加和桌宠关注范围，不再承担任务列表；首次引导完成后不自动弹出。
-- 悬浮监控窗是日常常驻界面：默认是一枚胶囊，只显示进行中／待处理／刚完成的数量；点击展开为最多 5 条的精简任务列表，行内可审批 Codex；鼠标移开 3 秒自动收回。
-- 出现待处理项时胶囊变琥珀色并呼吸，不会自动展开；无任务持续 30 秒后缩成小圆点。
-- 监控窗拖到屏幕左右边缘会吸附并只露出一小条，悬停滑出；位置与吸附状态持久化。
-- 桌宠只表现关注范围内优先级最高的任务；范围可选全部、设备、环境或会话。
-- 范围外的权限请求和失败以桌宠角标显示，不抢占当前动画。
-- 桌宠和监控窗可以分别从托盘隐藏。
+- `TaskNotifier`（`apps/desktop/src/task-notifier.ts`）比较前后两次聚合快照：会话
+  进入 `completed`／`failed`／`waiting_permission`，或在这些状态下产生新事件时，
+  生成一条提醒。首次出现的会话只有最后事件在 15 秒内才提醒，避免连接时重放历史。
+- 项目名取会话最近事件 `cwd` 的最后一段，聚合快照中以 `project` 字段提供。
+- 悬浮提醒窗是日常常驻界面：默认是一枚胶囊，只显示数量；收到提醒时进入 `toast`
+  模式 6 秒（悬停时保持），显示“环境 · 项目 状态”，多条合并为“+N”；点击展开为
+  最多 5 条的精简任务列表，刚提醒的任务高亮，行内可审批 Codex；鼠标移开 3 秒收回。
+- 系统通知使用 Electron `Notification`，Windows 上通过与安装包一致的
+  AppUserModelID 显示；点击后展开悬浮窗。可在设置页关闭。
+- 无任务持续 30 秒后胶囊缩成小圆点；拖到屏幕左右边缘会吸附，提示期间自动滑出。
+- 设置页只管理环境、连接状态、启停、SSH 添加和提醒偏好。
+- 桌宠为隐藏彩蛋（`preferences.petEnabled`，默认 false），解锁前不创建窗口。
 
 ## 构建与交付
 

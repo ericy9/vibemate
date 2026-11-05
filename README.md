@@ -1,24 +1,21 @@
 # VibeMate
 
-VibeMate 是一个面向 AI 编码 Agent 的桌面伙伴。它监听 Codex CLI 和
-GitHub Copilot CLI 会话，在任务需要用户注意时发出提醒，并允许用户不必逐个寻找
-终端窗口，就能处理受支持的权限请求。
-
-项目将从集成层开始构建：先完成 Agent 事件采集和权限路由，再让像素桌宠和桌面
-应用消费这套稳定协议。
+VibeMate 是一个**多设备 AI 编码任务的提醒小窗**。它把 Windows 本机、WSL 和
+Linux／树莓派上的 Codex CLI 与 GitHub Copilot CLI 会话汇总到一枚悬浮胶囊里，
+任务完成、失败或需要确认时，直接告诉你是**哪台设备、哪个项目**。
 
 ## 当前状态
 
-仓库已包含 Protocol v1、会话存储、权限 Broker、Codex/Copilot 事件映射、
-loopback HTTP 接收服务、Hook runner、增量安装器，以及由实时状态驱动的
-Electron 设置页、托盘、胶囊式悬浮监控窗和七状态悬浮桌宠。桌面端可以同时管理
-Windows 本机、多个 WSL 发行版，以及通过系统 SSH 接入的 Linux/树莓派环境。
+- 胶囊式悬浮提醒窗：平时只显示进行中／待处理／刚完成的数量；任务状态变化时
+  短暂显示“树莓派 · vibemate 已完成”这样的提示，点击展开任务列表。
+- 系统通知：内容与悬浮提示一致，默认开启，可在设置中关闭。
+- 多设备接入：Windows 本机、多个 WSL 发行版，以及通过 SSH（密码或私钥）接入的
+  Linux／树莓派。
+- 默认仅监控，沿用 Agent 原生授权。每个环境可单独开启“在 VibeMate 中审批
+  Codex”；关闭或客户端离线时回退原生审批。Copilot 只提醒，不接管审批。
+- 桌宠是隐藏彩蛋：设置页连续点击标题 5 次解锁。
 
-默认仅监控，沿用 Agent 原生授权设置。每个环境可单独开启“在 VibeMate 中审批
-Codex”；关闭或客户端离线会回退原生审批。Copilot 仅采集任务状态及实际
-`permission_prompt` 提醒，不接管审批，不干扰其 Allow All／会话授权规则。
-重新启用环境时安装器会移除 VibeMate 旧的 Copilot 权限 Hook 并注册通知 Hook，
-保留其他工具的配置。已运行的 Agent 可能需要重启会话才能加载新的 Hook 配置。
+已运行的 Agent 可能需要重启会话才能加载新的 Hook 配置。
 
 ## 项目文档
 
